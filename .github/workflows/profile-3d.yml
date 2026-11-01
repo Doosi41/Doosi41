@@ -33,6 +33,9 @@ jobs:
       - name: Black-background version of the gitblock picture
         run: python3 scripts/blackbg.py
 
+      - name: Drop the pictures the profile does not use
+        run: find profile-3d-contrib -type f ! -name 'profile-gitblock*.svg' -delete
+
       - name: Commit & Push
         run: |
           git config user.name "github-actions[bot]"
