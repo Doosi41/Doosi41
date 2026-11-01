@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""Downloads the full contribution history (all years) into docs/data/contributions.json.
+"""Выгружает всю историю коммитов (все годы) в docs/data/contributions.json.
 
-Used by the interactive 3D page (docs/index.html). Runs daily in GitHub Actions.
-Needs GITHUB_TOKEN in the environment; the login defaults to the repository owner.
+Нужна интерактивной 3D-странице (docs/index.html) и картинке tires.py. Запускается в GitHub Actions.
+Токен берётся из GITHUB_TOKEN, логин — из GH_LOGIN или владельца репозитория.
 """
 import datetime as dt
 import json
@@ -42,7 +42,7 @@ def main():
     start = dt.datetime.fromisoformat(first['createdAt'].replace('Z', '+00:00'))
     days = {}
     year = start.year
-    while year <= now.year:  # the API allows at most one year per request
+    while year <= now.year:  # API отдаёт максимум год за запрос
         frm = max(start, dt.datetime(year, 1, 1, tzinfo=dt.timezone.utc))
         to = min(now, dt.datetime(year, 12, 31, 23, 59, 59, tzinfo=dt.timezone.utc))
         user = graphql({'login': LOGIN, 'from': frm.isoformat(), 'to': to.isoformat()})
