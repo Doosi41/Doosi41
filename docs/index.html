@@ -42,7 +42,7 @@
   .toggle.on .switch { background: #30d158; }
   .toggle.on .switch::after { transform: translateX(16px); }
   .legend { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--muted); }
-  .legend i { width: 90px; height: 8px; border-radius: 4px; background: linear-gradient(90deg, #0a84ff 0 20%, #30d158 20% 40%, #f2f2f7 40% 60%, #ffd60a 60% 80%, #ff3b30 80%); }
+  .legend i { width: 90px; height: 8px; border-radius: 4px; background: linear-gradient(90deg, #0a84ff 0 20%, #30d158 20% 40%, #ff3b30 40% 60%, #ffd60a 60% 80%, #f2f2f7 80%); }
   footer { position: fixed; bottom: 16px; left: 50%; transform: translateX(-50%); padding: 10px 16px; font-size: 13px;
     color: var(--muted); white-space: nowrap; }
   footer a { color: var(--blue); text-decoration: none; }
@@ -101,7 +101,7 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 
 const CELL = 1.2, DAY = 86400000;
-const COMPOUNDS = ['#0a84ff', '#30d158', '#f2f2f7', '#ffd60a', '#ff3b30'].map(c => new THREE.Color(c));   // wet, inter, hard, medium, soft
+const COMPOUNDS = ['#0a84ff', '#30d158', '#ff3b30', '#ffd60a', '#f2f2f7'].map(c => new THREE.Color(c));   // wet, inter, soft, medium, hard: чем больше коммитов, тем дольше живёт шина
 const EMPTY = new THREE.Color('#48484c');
 const TH = 0.5;   // высота одной шины
 const $ = id => document.getElementById(id);
@@ -177,7 +177,7 @@ material.onBeforeCompile = shader => {   // цвет состава красит
 let mesh = null, tireCell = null, labels = new THREE.Group(), cells = [], anim = null;
 scene.add(labels);
 
-function color(t) {   // состав резины по интенсивности дня: wet → inter → hard → medium → soft
+function color(t) {   // состав резины по интенсивности дня: wet → inter → soft → medium → hard
   return COMPOUNDS[Math.min(Math.floor(t * COMPOUNDS.length), COMPOUNDS.length - 1)];
 }
 
