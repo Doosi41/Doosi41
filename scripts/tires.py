@@ -61,9 +61,10 @@ def get_defs():
         defs += tire('t-' + name, color, TIRE_H)
     defs += tire('t-flat', '#6e6e73', 2)   # день без коммитов
     # готовые стопки из 1..8 шин каждого состава, дальше на них просто ссылаемся через <use>
-    for name, _, _ in COMPOUNDS:
+    for name, color, _ in COMPOUNDS:
         for n in range(1, MAX_TIRES + 1):
-            stack = ''
+            # слабое цветное свечение на полу под стопкой
+            stack = ellipse(-1, 1.45, f'fill="{color}" fill-opacity=".14"')
             for j in range(n):
                 stack += f'<use href="#t-{name}" y="{-j * TIRE_H:.2f}"/>'
             defs += f'<g id="s-{name}-{n}">{stack}</g>'
