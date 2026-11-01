@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Contributions 3D</title>
-<meta name="description" content="Altay Abdurakhim's GitHub contributions as an interactive 3D city — rotate, zoom and pick any date range.">
+<meta name="description" content="Altay Abdurakhim's GitHub contributions as an interactive 3D stack of Formula 1 tires — rotate, zoom and pick any date range.">
 <style>
   :root {
     --bg: #000; --panel: rgba(28, 28, 30, 0.72); --line: rgba(255, 255, 255, 0.1);
@@ -42,7 +42,7 @@
   .toggle.on .switch { background: #30d158; }
   .toggle.on .switch::after { transform: translateX(16px); }
   .legend { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--muted); }
-  .legend i { width: 90px; height: 8px; border-radius: 4px; background: linear-gradient(90deg, #0a84ff, #5e5ce6, #bf5af2, #ff375f, #ff9f0a); }
+  .legend i { width: 90px; height: 8px; border-radius: 4px; background: linear-gradient(90deg, #0a84ff 0 20%, #30d158 20% 40%, #f2f2f7 40% 60%, #ffd60a 60% 80%, #ff3b30 80%); }
   footer { position: fixed; bottom: 16px; left: 50%; transform: translateX(-50%); padding: 10px 16px; font-size: 13px;
     color: var(--muted); white-space: nowrap; }
   footer a { color: var(--blue); text-decoration: none; }
@@ -101,8 +101,9 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 
 const CELL = 1.2, DAY = 86400000;
-const STOPS = ['#0a84ff', '#5e5ce6', '#bf5af2', '#ff375f', '#ff9f0a'].map(c => new THREE.Color(c));
-const EMPTY = new THREE.Color('#2c2c2e');
+const COMPOUNDS = ['#0a84ff', '#30d158', '#f2f2f7', '#ffd60a', '#ff3b30'].map(c => new THREE.Color(c));   // wet, inter, hard, medium, soft
+const EMPTY = new THREE.Color('#48484c');
+const TH = 0.5;   // высота одной шины
 const $ = id => document.getElementById(id);
 const iso = t => new Date(t).toISOString().slice(0, 10);
 const parse = s => Date.parse(s + 'T00:00:00Z');
@@ -138,14 +139,46 @@ floor.rotation.x = -Math.PI / 2;
 floor.receiveShadow = true;
 scene.add(floor);
 
-const box = new THREE.BoxGeometry(1, 1, 1).translate(0, 0.5, 0);
-const material = new THREE.MeshStandardMaterial({ roughness: 0.35, metalness: 0.15 });
-let mesh = null, labels = new THREE.Group(), cells = [], anim = null;
+// шина: профиль вращения (диск, скруглённые плечи, протектор); цветное кольцо на боковине красится цветом состава
+function tireGeometry() {
+  const pts = [], bands = [];
+  const add = (r, y) => pts.push(new THREE.Vector2(r, y));
+  for (let i = 0; i <= 8; i++) add(0.28 + 0.16 * i / 8, 0);                                   // нижняя боковина
+  for (let i = 1; i <= 5; i++) { const a = Math.PI / 2 * i / 5; add(0.44 + 0.06 * Math.sin(a), 0.06 - 0.06 * Math.cos(a)); }
+  const tread0 = pts.length - 1;
+  for (let i = 1; i <= 6; i++) add(0.5, 0.06 + (TH - 0.12) * i / 6);                          // протектор
+  const tread1 = pts.length - 1;
+  for (let i = 1; i <= 5; i++) { const a = Math.PI / 2 * i / 5; add(0.5 - 0.06 * (1 - Math.cos(a)), TH - 0.06 + 0.06 * Math.sin(a)); }
+  const top0 = pts.length;
+  for (let i = 1; i <= 8; i++) add(0.44 - 0.16 * i / 8, TH);                                  // верхняя боковина
+  const top1 = pts.length - 1;
+  add(0.28, TH / 2);
+  const g = new THREE.LatheGeometry(pts, 48);
+  const N = pts.length - 1, c = document.createElement('canvas');
+  c.width = 4; c.height = 512;
+  const x = c.getContext('2d'), y = v => (1 - v) * c.height;
+  x.fillStyle = '#3c3c42'; x.fillRect(0, 0, 4, 512);
+  const paint = (a, b, col) => { x.fillStyle = col; x.fillRect(0, y(b / N), 4, (b - a) / N * c.height); };
+  paint(1, 3, '#ffffff');                                         // кольцо на нижней боковине
+  paint(top0 + 2, top0 + 4, '#ffffff');                           // кольцо на верхней боковине (его видно сверху)
+  for (const f of [0.25, 0.5, 0.75]) paint(tread0 + (tread1 - tread0) * f - 0.25, tread0 + (tread1 - tread0) * f + 0.25, '#08080a');   // канавки протектора
+  paint(0, 0.01 * N, '#3c3c42');
+  const map = new THREE.CanvasTexture(c);
+  map.colorSpace = THREE.SRGBColorSpace;
+  g.userData.map = map;
+  return g;
+}
+const tire = tireGeometry();
+const material = new THREE.MeshStandardMaterial({ map: tire.userData.map, roughness: 0.72, metalness: 0.05 });
+material.onBeforeCompile = shader => {   // цвет состава красит только белое кольцо на боковине, резина остаётся чёрной
+  shader.fragmentShader = shader.fragmentShader.replace('#include <color_fragment>',
+    '#ifdef USE_COLOR\n diffuseColor.rgb = mix(diffuseColor.rgb, vColor, smoothstep(0.7, 0.95, diffuseColor.g));\n#endif');
+};
+let mesh = null, tireCell = null, labels = new THREE.Group(), cells = [], anim = null;
 scene.add(labels);
 
-function color(t) {
-  const x = Math.min(t, 1) * (STOPS.length - 1), i = Math.min(Math.floor(x), STOPS.length - 2);
-  return STOPS[i].clone().lerp(STOPS[i + 1], x - i);
+function color(t) {   // состав резины по интенсивности дня: wet → inter → hard → medium → soft
+  return COMPOUNDS[Math.min(Math.floor(t * COMPOUNDS.length), COMPOUNDS.length - 1)];
 }
 
 function label(text, size = 0.55) {
@@ -184,16 +217,20 @@ function build(from, to) {
   }
   const weeks = cells[cells.length - 1].week + 1;
   const maxH = Math.min(6, Math.max(3, weeks * CELL * 0.12)), labelSize = Math.max(0.6, weeks * 0.028);
-  mesh = new THREE.InstancedMesh(box, material, cells.length);
-  mesh.castShadow = mesh.receiveShadow = true;
-  cells.forEach((cell, i) => {
+  const maxTires = Math.max(2, Math.round(maxH / TH));
+  let count = 0;
+  for (const cell of cells) {
     const k = cell.c ? Math.sqrt(cell.c / max) : 0;
-    cell.h = cell.c ? 0.25 + maxH * k : 0.08;
+    cell.n = cell.c ? 1 + Math.round(k * (maxTires - 1)) : 1;   // стопка шин: чем больше коммитов, тем выше
+    cell.i0 = count; count += cell.n;
     cell.x = (cell.week - weeks / 2) * CELL;
     cell.z = (cell.dow - 3) * CELL;
     cell.color = cell.c ? color(k) : EMPTY;
-    mesh.setColorAt(i, cell.color);
-  });
+  }
+  mesh = new THREE.InstancedMesh(tire, material, count);
+  mesh.castShadow = mesh.receiveShadow = true;
+  tireCell = new Int32Array(count);
+  cells.forEach((cell, i) => { for (let j = 0; j < cell.n; j++) { tireCell[cell.i0 + j] = i; mesh.setColorAt(cell.i0 + j, cell.color); } });
   scene.add(mesh);
 
   let month = -1, lastWeek = -9;
@@ -236,18 +273,18 @@ function build(from, to) {
 }
 
 const dummy = new THREE.Object3D();
-function grow(now) {   // bars rise week by week, like a wave
+function grow(now) {   // стопки шин вырастают неделя за неделей, шина за шиной
   if (!anim) return;
   let done = true;
-  cells.forEach((cell, i) => {
-    const p = Math.min(Math.max((now - anim.start - cell.week * (500 / anim.weeks)) / 700, 0), 1);
+  for (const cell of cells) for (let j = 0; j < cell.n; j++) {
+    const p = Math.min(Math.max((now - anim.start - cell.week * (500 / anim.weeks) - j * 55) / 450, 0), 1);
     if (p < 1) done = false;
     const e = 1 - Math.pow(1 - p, 3);
-    dummy.position.set(cell.x, 0, cell.z);
-    dummy.scale.set(1, Math.max(cell.h * e, 0.001), 1);
+    dummy.position.set(cell.x, j * TH, cell.z);
+    dummy.scale.set(1, Math.max(e * (cell.c ? 1 : 0.18), 0.001), 1);
     dummy.updateMatrix();
-    mesh.setMatrixAt(i, dummy.matrix);
-  });
+    mesh.setMatrixAt(cell.i0 + j, dummy.matrix);
+  }
   mesh.instanceMatrix.needsUpdate = true;
   if (done) anim = null;
 }
@@ -294,11 +331,12 @@ function hover(e) {
   pointer.set(e.clientX / innerWidth * 2 - 1, -(e.clientY / innerHeight) * 2 + 1);
   ray.setFromCamera(pointer, camera);
   const hit = mesh && ray.intersectObject(mesh)[0];
-  const id = hit ? hit.instanceId : -1;
-  if (hovered !== -1 && hovered !== id) mesh.setColorAt(hovered, cells[hovered].color);
+  const id = hit ? tireCell[hit.instanceId] : -1;
+  const paint = (cell, col) => { for (let j = 0; j < cell.n; j++) mesh.setColorAt(cell.i0 + j, col); };
+  if (hovered !== -1 && hovered !== id && cells[hovered]) paint(cells[hovered], cells[hovered].color);
   if (id !== -1) {
     const c = cells[id];
-    mesh.setColorAt(id, new THREE.Color('#ffffff'));
+    paint(c, new THREE.Color('#64d2ff'));
     $('tip').innerHTML = `<b>${c.c} ${c.c === 1 ? 'contribution' : 'contributions'}</b><br>${fmt(c.t, { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' })}`;
     Object.assign($('tip').style, { left: e.clientX + 'px', top: e.clientY + 'px', opacity: 1 });
   } else $('tip').style.opacity = 0;
