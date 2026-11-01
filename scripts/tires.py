@@ -39,11 +39,14 @@ def tire(name, color, h):
         for part in (0.33, 0.66):
             y = -h * part
             svg += f'<path d="M{-RX} {y:.2f}A{RX} {RY} 0 0 0 {RX} {y:.2f}" fill="none" stroke="#000" stroke-opacity=".55" stroke-width=".8"/>'
-    # верх: резина, цветное кольцо, диск и дырка
-    svg += ellipse(h, 1, 'fill="#17171a"')
-    svg += ellipse(h, 0.8, f'fill="none" stroke="{color}" stroke-width="2.2"')
-    svg += ellipse(h, 0.5, 'fill="#3a3a3e"')
-    svg += ellipse(h, 0.26, 'fill="#050506"')
+    # верх: резина с тонким бортиком, цветное кольцо, серебристый диск и гайка в центре
+    svg += ellipse(h, 1, 'fill="#17171a" stroke="#34343a" stroke-width=".7"')
+    svg += ellipse(h, 0.8, f'fill="none" stroke="{color}" stroke-width="2.6"')
+    svg += ellipse(h, 0.62, 'fill="none" stroke="#000" stroke-opacity=".5" stroke-width=".8"')
+    svg += ellipse(h, 0.55, 'fill="#9a9aa0"')
+    svg += ellipse(h, 0.44, 'fill="#2e2e33"')
+    svg += ellipse(h, 0.2, 'fill="#c9c9ce"')
+    svg += ellipse(h, 0.08, 'fill="#050506"')
     return f'<g id="{name}">{svg}</g>'
 
 
