@@ -181,6 +181,119 @@ material.onBeforeCompile = shader => {   // цвет состава красит
 let mesh = null, tireCell = null, labels = new THREE.Group(), cells = [], anim = null;
 scene.add(labels);
 
+// ── SF-26 и Леклер на заднем плане ──
+// Машина собрана из простых форм (это упрощённая модель, а не заводской чертёж); 1 единица = 1 метр
+const showroom = new THREE.Group();
+scene.add(showroom);
+
+function buildCar() {
+  const car = new THREE.Group();
+  const red = new THREE.MeshStandardMaterial({ color: '#e10600', roughness: 0.3, metalness: 0.35 });
+  const dark = new THREE.MeshStandardMaterial({ color: '#141416', roughness: 0.55, metalness: 0.4 });
+  const white = new THREE.MeshStandardMaterial({ color: '#f2f2f2', roughness: 0.4, metalness: 0.1 });
+  const part = (geo, mat, x, y, z, rx = 0, ry = 0, rz = 0) => {
+    const m = new THREE.Mesh(geo, mat);
+    m.position.set(x, y, z); m.rotation.set(rx, ry, rz);
+    m.castShadow = true;
+    car.add(m);
+    return m;
+  };
+  const box = (w, h, d) => new THREE.BoxGeometry(w, h, d);
+  const rod = (a, b, r = 0.014) => {   // тяга подвески между двумя точками
+    const v = new THREE.Vector3().subVectors(b, a);
+    const m = new THREE.Mesh(new THREE.CylinderGeometry(r, r, v.length(), 6), dark);
+    m.position.copy(a).addScaledVector(v, 0.5);
+    m.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), v.normalize());
+    car.add(m);
+  };
+
+  part(box(3.7, 0.05, 1.5), dark, -0.05, 0.14, 0);                                   // днище
+  part(box(2.5, 0.42, 0.56), red, 0.2, 0.48, 0);                                      // монокок
+  part(new THREE.CylinderGeometry(0.07, 0.21, 1.8, 20), red, 1.75, 0.36, 0, 0, 0, -Math.PI / 2);   // нос
+  for (const side of [-1, 1]) {
+    part(box(1.7, 0.34, 0.48), red, -0.35, 0.42, side * 0.5);                         // воздухозаборники и боковины
+    part(box(0.5, 0.3, 0.46), dark, 0.58, 0.42, side * 0.5, 0, side * 0.25, 0);       // вход радиатора
+    part(box(0.9, 0.06, 0.03), white, -0.2, 0.55, side * 0.745);                      // белая полоса по борту
+  }
+  part(new THREE.CylinderGeometry(0.09, 0.32, 2.0, 16), red, -1.0, 0.64, 0, 0, 0, Math.PI / 2);   // капот двигателя
+  part(box(0.32, 0.34, 0.3), red, -0.1, 0.8, 0);                                      // воздухозаборник над головой
+  part(box(0.72, 0.1, 0.38), dark, 0.5, 0.72, 0);                                     // кокпит
+  const halo = part(new THREE.TorusGeometry(0.3, 0.022, 8, 24, Math.PI), dark, 0.5, 0.74, 0);   // хало
+  halo.scale.set(1, 0.7, 1);
+  part(new THREE.CylinderGeometry(0.02, 0.02, 0.3, 8), dark, 0.78, 0.86, 0, 0, 0, -0.5);
+  part(new THREE.SphereGeometry(0.15, 16, 12), dark, 0.38, 0.86, 0);                  // шлем пилота
+
+  part(box(0.5, 0.035, 1.95), dark, 2.78, 0.1, 0);                                    // передний wing
+  part(box(0.3, 0.03, 1.85), red, 2.6, 0.2, 0, 0, 0, 0.12);
+  for (const side of [-1, 1]) part(box(0.62, 0.28, 0.03), red, 2.72, 0.2, side * 0.97);
+  part(box(0.34, 0.03, 1.02), dark, -2.5, 0.92, 0);                                   // задний wing
+  part(box(0.3, 0.025, 1.02), red, -2.46, 1.06, 0, 0, 0, 0.28);
+  for (const side of [-1, 1]) part(box(0.78, 0.6, 0.03), red, -2.5, 0.82, side * 0.53);
+  part(box(0.06, 0.55, 0.06), dark, -2.4, 0.62, 0);
+  part(box(0.8, 0.03, 1.0), dark, -2.05, 0.24, 0, 0, 0, 0.2);                         // диффузор
+
+  const wheel = tire.clone().translate(0, -TH / 2, 0);
+  const wheels = [[1.7, 0.66, 0.3, 0.84], [-1.65, 0.72, 0.4, 0.86]];
+  for (const [x, d, w, z] of wheels) for (const side of [-1, 1]) {
+    const m = new THREE.Mesh(wheel, material);
+    m.rotation.x = Math.PI / 2;
+    m.scale.set(d, w / TH, d);
+    m.position.set(x, d / 2, side * z);
+    m.castShadow = true;
+    car.add(m);
+    rod(new THREE.Vector3(x + 0.12, 0.34, side * 0.28), new THREE.Vector3(x, d / 2, side * (z - w / 2)));
+    rod(new THREE.Vector3(x - 0.12, 0.3, side * 0.28), new THREE.Vector3(x, d / 2 - 0.02, side * (z - w / 2)));
+  }
+
+  const decal = document.createElement('canvas');   // надпись SF-26 на борту
+  decal.width = 256; decal.height = 96;
+  const g = decal.getContext('2d');
+  g.fillStyle = '#ffffff'; g.font = '700 70px -apple-system, "Segoe UI", sans-serif';
+  g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText('SF-26', 128, 50);
+  const decalMat = new THREE.MeshBasicMaterial({ map: new THREE.CanvasTexture(decal), transparent: true });
+  for (const side of [-1, 1]) {
+    const m = new THREE.Mesh(new THREE.PlaneGeometry(0.64, 0.24), decalMat);
+    m.position.set(-0.45, 0.46, side * 0.746);
+    m.rotation.y = side > 0 ? 0 : Math.PI;
+    car.add(m);
+  }
+  return car;
+}
+
+const car = buildCar();
+const driver = new THREE.Sprite(new THREE.SpriteMaterial({ transparent: true, depthWrite: false, fog: false }));
+const DRIVER_H = 2.6;
+driver.visible = false;
+new THREE.TextureLoader().load('leclerc.png', tex => {   // вырезанное фото: низ плавно уходит в прозрачность
+  const c = document.createElement('canvas');
+  c.width = tex.image.width; c.height = tex.image.height;
+  const g = c.getContext('2d');
+  g.drawImage(tex.image, 0, 0);
+  const fade = g.createLinearGradient(0, c.height * 0.76, 0, c.height);
+  fade.addColorStop(0, 'rgba(0,0,0,0)'); fade.addColorStop(1, 'rgba(0,0,0,1)');
+  g.globalCompositeOperation = 'destination-out';
+  g.fillStyle = fade; g.fillRect(0, 0, c.width, c.height);
+  const map = new THREE.CanvasTexture(c);
+  map.colorSpace = THREE.SRGBColorSpace;
+  driver.material.map = map; driver.material.needsUpdate = true;
+  driver.scale.set(DRIVER_H * c.width / c.height, DRIVER_H, 1);
+  driver.visible = true;
+});
+car.rotation.y = -0.35;          // нос чуть повёрнут к зрителю
+car.position.x = -2.6;
+driver.position.set(3.3, DRIVER_H / 2, 0.8);
+const carLight = new THREE.PointLight('#ff2a2a', 25, 30);
+carLight.position.set(0, 3.5, 3);
+showroom.add(car, driver, carLight);
+
+function placeShowroom(width) {   // подгоняем размер и место под ширину графика
+  const k = Math.min(4, Math.max(1.6, width / 20));
+  const z = -(3.5 * CELL + 1.8 + 1.8 * k);
+  showroom.scale.setScalar(k);
+  showroom.position.set(0, 0, z);
+  return { k, z };
+}
+
 function color(t) {   // состав резины по интенсивности дня: wet → inter → soft → medium → hard
   return COMPOUNDS[Math.min(Math.floor(t * COMPOUNDS.length), COMPOUNDS.length - 1)];
 }
@@ -256,7 +369,8 @@ function build(from, to) {
   }
 
   const width = weeks * CELL, size = Math.max(width, 9 * CELL);
-  floor.scale.set(size + 14, 9 * CELL + 14, 1);
+  const { k, z } = placeShowroom(width);
+  floor.scale.set(size + 14, Math.max(9 * CELL + 14, 2 * (-z + 2.6 * k) + 2), 1);
   sun.position.set(size * 0.3, 30, 20);
   Object.assign(sun.shadow.camera, { left: -size, right: size, top: size, bottom: -size, far: 120 });
   sun.shadow.camera.updateProjectionMatrix();
