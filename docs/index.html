@@ -99,7 +99,6 @@
 <script type="module">
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
-import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 
 const CELL = 1.2, DAY = 86400000;
 const COMPOUNDS = ['#1a8fff', '#25e060', '#ff2d2d', '#ffe01a', '#ffffff'].map(c => new THREE.Color(c));   // wet, inter, soft, medium, hard: чем больше коммитов, тем дольше живёт шина
@@ -182,39 +181,6 @@ material.onBeforeCompile = shader => {   // цвет состава красит
 let mesh = null, tireCell = null, labels = new THREE.Group(), cells = [], anim = null;
 scene.add(labels);
 
-// ── SF-26 на заднем плане ──
-// Модель болида — готовая low-poly из открытого источника, а не точная копия SF-26; 1 единица = 1 метр
-const showroom = new THREE.Group();
-scene.add(showroom);
-
-const car = new THREE.Group();
-new GLTFLoader().load('racecar.glb', gltf => {   // модель болида: CC0, opengameart.org (mabaci)
-  const model = gltf.scene;
-  const box = new THREE.Box3().setFromObject(model);
-  const size = box.getSize(new THREE.Vector3()), center = box.getCenter(new THREE.Vector3());
-  const k = 5.5 / Math.max(size.x, size.z);   // длина как у настоящего болида, около 5.5 м
-  model.scale.setScalar(k);
-  model.position.set(-center.x * k, -box.min.y * k, -center.z * k);
-  model.traverse(o => { if (o.isMesh) o.castShadow = true; });
-  const pivot = new THREE.Group();
-  pivot.add(model);
-  if (size.z > size.x) pivot.rotation.y = Math.PI / 2;   // вдоль оси x
-  car.add(pivot);
-});
-car.rotation.y = -0.35;          // нос чуть повёрнут к зрителю
-car.position.x = -2.6;
-const carLight = new THREE.PointLight('#ff2a2a', 25, 30);
-carLight.position.set(0, 3.5, 3);
-showroom.add(car, carLight);
-
-function placeShowroom(width) {   // подгоняем размер и место под ширину графика
-  const k = Math.min(4, Math.max(1.6, width / 20));
-  const z = -(3.5 * CELL + 1.8 + 1.8 * k);
-  showroom.scale.setScalar(k);
-  showroom.position.set(0, 0, z);
-  return { k, z };
-}
-
 function color(t) {   // состав резины по интенсивности дня: wet → inter → soft → medium → hard
   return COMPOUNDS[Math.min(Math.floor(t * COMPOUNDS.length), COMPOUNDS.length - 1)];
 }
@@ -290,8 +256,7 @@ function build(from, to) {
   }
 
   const width = weeks * CELL, size = Math.max(width, 9 * CELL);
-  const { k, z } = placeShowroom(width);
-  floor.scale.set(size + 14, Math.max(9 * CELL + 14, 2 * (-z + 2.6 * k) + 2), 1);
+  floor.scale.set(size + 14, 9 * CELL + 14, 1);
   sun.position.set(size * 0.3, 30, 20);
   Object.assign(sun.shadow.camera, { left: -size, right: size, top: size, bottom: -size, far: 120 });
   sun.shadow.camera.updateProjectionMatrix();
