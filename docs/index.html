@@ -48,6 +48,11 @@
   footer a { color: var(--blue); text-decoration: none; }
   footer .long + span { display: none; }
   @media (max-width: 640px) { footer .long + span { display: inline; } }
+  #daynight { position: fixed; top: 16px; left: 50%; transform: translateX(-50%); display: flex; align-items: center; gap: 8px;
+    padding: 11px 18px; border-radius: 999px; color: var(--text); font: 600 14px/1 inherit; font-family: inherit; cursor: pointer; z-index: 3; }
+  #daynight:hover { background: rgba(60, 60, 64, 0.8); }
+  #dnIcon { font-size: 17px; }
+  @media (max-width: 900px) { #daynight { top: auto; bottom: 64px; } }
   #tip { position: fixed; pointer-events: none; padding: 10px 14px; font-size: 13px; opacity: 0; transition: opacity .12s;
     transform: translate(-50%, calc(-100% - 14px)); white-space: nowrap; }
   #tip b { font-size: 15px; }
@@ -83,11 +88,11 @@
     <div class="dates">From <input type="date" id="from"> to <input type="date" id="to"></div>
     <div class="row">
       <div class="toggle on" id="spin"><span class="switch"></span>Auto-rotate</div>
-      <div class="toggle on" id="night"><span class="switch"></span>Night</div>
       <div class="legend">Less <i></i> More</div>
     </div>
   </div>
 </header>
+<button class="glass" id="daynight" type="button" aria-label="Day or night"><span id="dnIcon">🌙</span><span id="dnText">Night</span></button>
 <div class="glass" id="tip"></div>
 <footer class="glass"><span class="long">Drag to rotate · Scroll or pinch to zoom · Right-drag to move · </span><span>Drag · pinch · two fingers to move · </span><a href="https://github.com/a1tvv">@a1tvv</a></footer>
 
@@ -675,11 +680,13 @@ function custom() {
 }
 $('from').onchange = $('to').onchange = custom;
 $('spin').onclick = () => { controls.autoRotate = !controls.autoRotate; $('spin').classList.toggle('on', controls.autoRotate); };
-$('night').onclick = () => { nightTarget = nightTarget ? 0 : 1; $('night').classList.toggle('on', !!nightTarget); };
+function dayNightLabel() { $('dnIcon').textContent = nightTarget ? '🌙' : '☀️'; $('dnText').textContent = nightTarget ? 'Night' : 'Day'; }
+$('daynight').onclick = () => { nightTarget = nightTarget ? 0 : 1; dayNightLabel(); };
 controls.addEventListener('start', () => { controls.autoRotate = false; $('spin').classList.remove('on'); });
 
 const q = new URLSearchParams(location.search);
-if (q.get('day') === '1') { uNight.value = 0; nightTarget = 0; $('night').classList.remove('on'); }
+if (q.get('day') === '1') { uNight.value = 0; nightTarget = 0; }
+dayNightLabel();
 if (q.get('from') && q.get('to')) {
   $('from').value = q.get('from'); $('to').value = q.get('to'); custom();
 } else {
