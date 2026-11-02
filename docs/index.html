@@ -181,7 +181,7 @@ material.onBeforeCompile = shader => {   // цвет состава красит
 let mesh = null, tireCell = null, labels = new THREE.Group(), cells = [], anim = null;
 scene.add(labels);
 
-// ── SF-26 и Леклер на заднем плане ──
+// ── SF-26 на заднем плане ──
 // Машина собрана из простых форм (это упрощённая модель, а не заводской чертёж); 1 единица = 1 метр
 const showroom = new THREE.Group();
 scene.add(showroom);
@@ -261,30 +261,11 @@ function buildCar() {
 }
 
 const car = buildCar();
-const driver = new THREE.Sprite(new THREE.SpriteMaterial({ transparent: true, depthWrite: false, fog: false }));
-const DRIVER_H = 2.6;
-driver.visible = false;
-new THREE.TextureLoader().load('leclerc.png', tex => {   // вырезанное фото: низ плавно уходит в прозрачность
-  const c = document.createElement('canvas');
-  c.width = tex.image.width; c.height = tex.image.height;
-  const g = c.getContext('2d');
-  g.drawImage(tex.image, 0, 0);
-  const fade = g.createLinearGradient(0, c.height * 0.76, 0, c.height);
-  fade.addColorStop(0, 'rgba(0,0,0,0)'); fade.addColorStop(1, 'rgba(0,0,0,1)');
-  g.globalCompositeOperation = 'destination-out';
-  g.fillStyle = fade; g.fillRect(0, 0, c.width, c.height);
-  const map = new THREE.CanvasTexture(c);
-  map.colorSpace = THREE.SRGBColorSpace;
-  driver.material.map = map; driver.material.needsUpdate = true;
-  driver.scale.set(DRIVER_H * c.width / c.height, DRIVER_H, 1);
-  driver.visible = true;
-});
 car.rotation.y = -0.35;          // нос чуть повёрнут к зрителю
 car.position.x = -2.6;
-driver.position.set(3.3, DRIVER_H / 2, 0.8);
 const carLight = new THREE.PointLight('#ff2a2a', 25, 30);
 carLight.position.set(0, 3.5, 3);
-showroom.add(car, driver, carLight);
+showroom.add(car, carLight);
 
 function placeShowroom(width) {   // подгоняем размер и место под ширину графика
   const k = Math.min(4, Math.max(1.6, width / 20));
