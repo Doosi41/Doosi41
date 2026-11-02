@@ -31,7 +31,7 @@
 
 <img src="assets/titles/activity.svg" alt="Activity" width="100%">
 
-<a href="https://a1tvv.github.io/a1tvv/"><img src="profile-3d-contrib/profile-tires.svg" alt="My commits as stacks of Formula 1 tires — open the interactive 3D version" width="100%"></a>
+<a href="https://a1tvv.github.io/a1tvv/"><img src="profile-3d-contrib/profile-city.svg" alt="My commits as a night city — one building per day, more commits means more floors. Open the interactive 3D version" width="100%"></a>
 
 <p align="center"><a href="https://a1tvv.github.io/a1tvv/"><b>Open the 3D view ›</b></a><br><sub>Turn it, zoom in and choose any dates</sub></p>
 

@@ -1,5 +1,5 @@
 # Каждые 3 часа, при пуше в main и вручную (Actions → Run workflow):
-# 1) рисует для README картинку коммитов — стопки шин Формулы 1 (scripts/tires.py),
+# 1) рисует для README картинку коммитов — ночной город (scripts/city.py),
 # 2) выгружает историю коммитов для интерактивной 3D-страницы (docs/, GitHub Pages).
 name: 3D contributions
 
@@ -25,8 +25,11 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GH_LOGIN: ${{ github.repository_owner }}
 
-      - name: Tires picture for the README
-        run: python3 scripts/tires.py
+      - name: City picture for the README
+        run: python3 scripts/city.py
+
+      - name: Drop pictures the profile does not use
+        run: find profile-3d-contrib -type f ! -name 'profile-city.svg' -delete
 
       - name: Commit & Push
         run: |
