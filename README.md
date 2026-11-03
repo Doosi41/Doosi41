@@ -1,4 +1,4 @@
-<p align="center"><b>English</b> &nbsp;|&nbsp; <a href="https://github.com/a1tvv/a1tvv/blob/main/README.ru.md">Русский</a></p>
+<p align="center"><b>English</b> &nbsp;|&nbsp; <a href="https://github.com/Doosi41/Doosi41/blob/main/README.ru.md">Русский</a></p>
 
 <a href="#projects"><img src="assets/hero.svg" alt="Altay Abdurakhim — Python backends, Telegram bots and apps with AI" width="100%"></a>
 
@@ -13,9 +13,9 @@
 <a name="projects"></a>
 <img src="assets/titles/projects.svg" alt="Top projects" width="100%">
 
-<a href="https://github.com/a1tvv/rentui.kg"><img src="assets/projects/rentui-kg.svg" alt="rentui.kg — Homes for rent in Kyrgyzstan — directly from the owners" width="100%"></a>
-<a href="https://github.com/a1tvv/gb-ansar"><img src="assets/projects/gb-ansar.svg" alt="gb-ansar — AI product catalog for Ansar Home Warehouse" width="100%"></a>
-<a href="https://github.com/a1tvv/olymp"><img src="assets/projects/olymp.svg" alt="olymp — Competitive programming solutions. The README updates itself" width="100%"></a>
+<a href="https://github.com/Doosi41/rentui.kg"><img src="assets/projects/rentui-kg.svg" alt="rentui.kg — Homes for rent in Kyrgyzstan — directly from the owners" width="100%"></a>
+<a href="https://github.com/Doosi41/gb-ansar"><img src="assets/projects/gb-ansar.svg" alt="gb-ansar — AI product catalog for Ansar Home Warehouse" width="100%"></a>
+<a href="https://github.com/Doosi41/olymp"><img src="assets/projects/olymp.svg" alt="olymp — Competitive programming solutions. The README updates itself" width="100%"></a>
 
 <br>
 <br>
@@ -29,16 +29,16 @@
 
 <img src="assets/titles/activity.svg" alt="Activity" width="100%">
 
-<a href="https://a1tvv.github.io/a1tvv/"><img src="profile-3d-contrib/profile-city.svg" alt="My commits as a night city — one building per day, more commits means more floors. Open the interactive 3D version" width="100%"></a>
+<a href="https://Doosi41.github.io/Doosi41/"><img src="profile-3d-contrib/profile-city.svg" alt="My commits as a night city — one building per day, more commits means more floors. Open the interactive 3D version" width="100%"></a>
 
-<p align="center"><a href="https://a1tvv.github.io/a1tvv/"><b>Open the 3D view ›</b></a><br><sub>Turn it, zoom in and choose any dates</sub></p>
+<p align="center"><a href="https://Doosi41.github.io/Doosi41/"><b>Open the 3D view ›</b></a><br><sub>Turn it, zoom in and choose any dates</sub></p>
 
 <br>
 <br>
 
 <img src="assets/titles/focus.svg" alt="Right now" width="100%">
 
-<a href="https://github.com/a1tvv/olymp"><img src="assets/focus.svg" alt="Right now: competitive programming in C++ — solutions in olymp" width="100%"></a>
+<a href="https://github.com/Doosi41/olymp"><img src="assets/focus.svg" alt="Right now: competitive programming in C++ — solutions in olymp" width="100%"></a>
 
 <br>
 

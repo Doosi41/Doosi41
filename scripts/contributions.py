@@ -9,7 +9,7 @@ import json
 import os
 import urllib.request
 
-LOGIN = os.environ.get('GH_LOGIN') or os.environ.get('GITHUB_REPOSITORY_OWNER') or 'a1tvv'
+LOGIN = os.environ.get('GH_LOGIN') or os.environ.get('GITHUB_REPOSITORY_OWNER') or 'Doosi41'
 TOKEN = os.environ['GITHUB_TOKEN']
 OUT = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'docs', 'data', 'contributions.json')
 
