@@ -46,7 +46,8 @@
 <img src="assets/ru/titles/contact.svg" alt="Контакты" width="100%">
 
 <p>
-<a href="mailto:altaiabdurahim07@gmail.com"><img src="assets/contact/email.svg" alt="Email: altaiabdurahim07@gmail.com" width="32.5%"></a><a href="https://t.me/dusi84"><img src="assets/contact/telegram.svg" alt="Telegram: @dusi84" width="32.5%"></a><a href="https://www.linkedin.com/in/abdurakhim-altai-216066339"><img src="assets/contact/linkedin.svg" alt="LinkedIn: Abdurakhim Altai" width="32.5%"></a>
+<a href="mailto:altaiabdurahim07@gmail.com"><img src="assets/contact/email.svg" alt="Email: altaiabdurahim07@gmail.com" width="49.5%"></a><a href="https://t.me/dusi84"><img src="assets/contact/telegram.svg" alt="Telegram: @dusi84" width="49.5%"></a><br>
+<a href="https://www.linkedin.com/in/abdurakhim-altai-216066339"><img src="assets/contact/linkedin.svg" alt="LinkedIn: Abdurakhim Altai" width="49.5%"></a><a href="https://codeforces.com/profile/solion"><img src="assets/contact/codeforces.svg" alt="Codeforces: solion" width="49.5%"></a>
 </p>
 
 <br>
