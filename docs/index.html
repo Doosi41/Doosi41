@@ -282,6 +282,100 @@ heli.scale.setScalar(0.8);
 heli.visible = false;
 scene.add(heli);
 
+// ── болиды: 11 команд по 2 машины, гоняют по трассе вокруг квартала ──
+const TEAMS = [   // [корпус, акцент]
+  ['#ff8000', '#111214'], ['#e8002d', '#f5f5f7'], ['#1e2a5a', '#e10600'], ['#c8ccd4', '#00d2be'],
+  ['#0b6b52', '#cedc00'], ['#0a8fd1', '#ff87bc'], ['#1250c9', '#64c4ff'], ['#f5f5f7', '#2b4cff'],
+  ['#6e7176', '#f50537'], ['#dfe1e5', '#d0021b'], ['#141518', '#e8e8e8'],
+];
+const LANE = 0.65, CORNER_R = 2.5, TOP_SPEED = 9;   // две полосы: ось ± LANE; скорость в клетках в секунду
+const tyreMat = new THREE.MeshStandardMaterial({ color: '#101012', roughness: 0.85 });
+const carbonMat = new THREE.MeshStandardMaterial({ color: '#1a1b1f', roughness: 0.5, metalness: 0.3 });
+const rainLightMat = new THREE.MeshStandardMaterial({ color: '#400', emissive: '#ff2020', emissiveIntensity: 2 });
+const wheelGeo = new THREE.CylinderGeometry(1, 1, 1, 14).rotateX(Math.PI / 2);   // ось колеса вдоль z
+
+function buildCar([body, accent]) {   // носом по +x
+  const g = new THREE.Group();
+  const bodyMat = new THREE.MeshStandardMaterial({ color: body, roughness: 0.35, metalness: 0.35 });
+  const accentMat = new THREE.MeshStandardMaterial({ color: accent, roughness: 0.4, metalness: 0.2 });
+  const part = (geo, mat, x, y, z, sx, sy, sz) => { const m = new THREE.Mesh(geo, mat); m.position.set(x, y, z); m.scale.set(sx, sy, sz); m.castShadow = true; g.add(m); return m; };
+  part(box, bodyMat, -0.05, 0.05, 0, 0.8, 0.09, 0.2);      // монокок
+  part(box, bodyMat, 0.45, 0.05, 0, 0.3, 0.06, 0.1);       // нос
+  part(box, bodyMat, -0.02, 0.05, 0, 0.36, 0.08, 0.38);    // понтоны
+  part(box, accentMat, -0.25, 0.1, 0, 0.36, 0.1, 0.12);    // кожух двигателя
+  part(box, carbonMat, 0.1, 0.13, 0, 0.16, 0.03, 0.12);    // кокпит
+  part(box, accentMat, 0.6, 0.03, 0, 0.06, 0.02, 0.5);     // переднее антикрыло
+  part(box, accentMat, -0.5, 0.2, 0, 0.08, 0.03, 0.42);    // заднее антикрыло
+  for (const s of [-1, 1]) part(box, carbonMat, -0.5, 0.06, s * 0.2, 0.1, 0.16, 0.015);
+  for (const [x, r] of [[0.33, 0.085], [-0.33, 0.1]]) for (const s of [-1, 1]) part(wheelGeo, tyreMat, x, r, s * 0.22, r, r, 0.09);
+  part(box, rainLightMat, -0.47, 0.07, 0, 0.02, 0.03, 0.05);   // фонарь сзади
+  return g;
+}
+const cars = TEAMS.flatMap((team, i) => [0, 1].map(k => {
+  const mesh = buildCar(team);
+  scene.add(mesh);
+  return { mesh, s: 0, lane: 1, off: 0, v: 0, cool: 0, vmax: TOP_SPEED * (0.93 + 0.07 * hash(i, k + 5)) };
+}));
+let track = null;   // ось трассы: прямые и повороты; s - путь вдоль оси от начала главной прямой
+
+function setTrack(x0, x1, z0, z1, startX) {
+  const R = CORNER_R, old = track;
+  const corners = [[x0 + R, z1, 0], [x1, z1 - R, -Math.PI / 2], [x1 - R, z0, -Math.PI], [x0, z0 + R, -Math.PI * 1.5]];
+  const segs = [];
+  corners.forEach(([x, z, th], i) => {   // прямая, потом поворот направо на 90°
+    const len = i % 2 ? z1 - z0 - 2 * R : x1 - x0 - 2 * R;
+    segs.push({ x, z, th, len });
+    const ex = x + Math.cos(th) * len, ez = z + Math.sin(th) * len;
+    segs.push({ arc: true, cx: ex + Math.sin(th) * R, cz: ez - Math.cos(th) * R, th, len: Math.PI * R / 2 });
+  });
+  track = { segs, len: segs.reduce((a, g) => a + g.len, 0) };
+  if (old) { for (const c of cars) c.s *= track.len / old.len; return; }
+  // первый раз: стартовая решётка за клетчатой линией, по две машины в ряд
+  cars.forEach((c, i) => { c.s = startX - (x0 + R) - 1 - i * 1.3; c.lane = i % 2 ? -1 : 1; c.off = c.lane * LANE; });
+}
+
+function trackAt(s) {   // точка оси, направление и сколько осталось до поворота
+  s = ((s % track.len) + track.len) % track.len;
+  for (const g of track.segs) {
+    if (s < g.len) {
+      if (!g.arc) return { x: g.x + Math.cos(g.th) * s, z: g.z + Math.sin(g.th) * s, th: g.th, toCorner: g.len - s };
+      const th = g.th - s / CORNER_R;
+      return { x: g.cx - Math.sin(th) * CORNER_R, z: g.cz + Math.cos(th) * CORNER_R, th, toCorner: 0 };
+    }
+    s -= g.len;
+  }
+  return trackAt(0);
+}
+
+// машина занимает полосу, если едет в ней или как раз перестраивается
+const inLane = (c, lane) => c.lane === lane || Math.abs(c.off - lane * LANE) < LANE * 1.1;
+
+function race(dt) {
+  if (!track) return;
+  const L = track.len;
+  for (const c of cars) {
+    const p = trackAt(c.s);
+    // в повороте медленнее, перед ним тормозим
+    let target = c.vmax * (p.toCorner ? Math.min(1, 0.55 + 0.45 * Math.max(0, (p.toCorner - 1) / 7)) : 0.55);
+    let ahead = null, gap = Infinity;
+    for (const o of cars) if (o !== c && inLane(o, c.lane)) { const d = (o.s - c.s + L) % L; if (d > 0 && d < gap) { gap = d; ahead = o; } }
+    c.cool -= dt;
+    if (ahead && gap < 3.2 && target > ahead.v && c.cool <= 0
+        && !cars.some(o => o !== c && inLane(o, -c.lane) && Math.abs((o.s - c.s + L * 1.5) % L - L / 2) < 2.4)) {
+      c.lane = -c.lane; c.cool = 2.5; ahead = null;   // соседняя полоса свободна: обгон
+    }
+    if (ahead && gap < 3.5) target = Math.min(target, ahead.v + (gap - 2) * 2);   // держим дистанцию
+    c.v = Math.max(0, c.v + Math.max(-14 * dt, Math.min(4.5 * dt, target - c.v)));
+    if (ahead && gap < 1.4) c.v = Math.min(c.v, ahead.v);
+    c.s = (c.s + c.v * dt) % L;
+    const side = Math.max(-1.6 * dt, Math.min(1.6 * dt, c.lane * LANE - c.off));
+    c.off += side;
+    const q = trackAt(c.s), yaw = q.th + Math.atan2(side / Math.max(dt, 1e-3), Math.max(c.v, 1));
+    c.mesh.position.set(q.x - Math.sin(q.th) * c.off, 0.04, q.z + Math.cos(q.th) * c.off);
+    c.mesh.rotation.y = -yaw;
+  }
+}
+
 // ── контейнеры динамической сцены ──
 const world = new THREE.Group();   // всё, что пересобирается при смене периода
 scene.add(world);
@@ -460,6 +554,7 @@ function build(from, to) {
     return new THREE.Mesh(new THREE.PlaneGeometry(0.7, TRACK_W), new THREE.MeshStandardMaterial({ map: t, roughness: 0.8 }));
   })();
   flag.rotation.x = -Math.PI / 2; flag.position.set(-W / 4, 0.047, zSouth); world.add(flag);
+  setTrack(xWest, xEast, zNorth, zSouth, -W / 4);
 
   // пит-комплекс: ряд боксов с открытыми воротами, шины, светофорная рамка, стена
   const bays = Math.max(4, Math.min(12, Math.round(W / 6)));
@@ -467,7 +562,7 @@ function build(from, to) {
   const pitBuild = new THREE.Group();
   const garageMat = new THREE.MeshStandardMaterial({ color: '#d9dbe0', roughness: 0.7 });
   const doorMat = new THREE.MeshStandardMaterial({ color: '#0e0f12', emissive: '#ffd89a', emissiveIntensity: 0.0, roughness: 0.4 });
-  const teams = ['#d3141f', '#1a8fff', '#ff8a00', '#22c06a', '#ffe01a', '#9b5cff', '#f5f5f7', '#16a7c6'];
+  const teams = TEAMS.map(t => t[0]);
   for (let i = 0; i < bays; i++) {
     const x = -(bays * bayW) / 2 + bayW * (i + 0.5);
     const body = new THREE.Mesh(box, garageMat); body.scale.set(bayW - 0.12, 1.3, pitDepth); body.position.set(x, 0, pitZ); body.castShadow = body.receiveShadow = true; pitBuild.add(body);
@@ -727,6 +822,7 @@ renderer.setAnimationLoop(now => {
   const dt = Math.min((now - lastT) / 1000, 0.05); lastT = now;
   if (Math.abs(uNight.value - nightTarget) > 0.001) { applyNight(uNight.value + Math.sign(nightTarget - uNight.value) * Math.min(dt * 1.6, Math.abs(nightTarget - uNight.value))); }
   grow(now);
+  race(dt);
   heli.userData.rotor.rotation.y += dt * 24; heli.userData.tail.rotation.x += dt * 30;
   sky.position.copy(camera.position);
   controls.update();

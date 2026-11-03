@@ -35,15 +35,16 @@ TRACK_W = 1.6     # ширина
 TRACK_GAP = 1.9   # от центра крайних клеток до оси трассы
 TRACK_R = 1.5     # радиус поворотов по оси
 LANE = 0.4        # две полосы: ось ± LANE, чтобы болиды обгоняли, а не проезжали друг сквозь друга
-# цвет болида, полоса (+1 внешняя, -1 внутренняя), секунд на круг, где он на старте (доля круга)
-CARS = [
-    ('#e8002d', 1, 14.0, 0.0),
-    ('#ff8000', 1, 14.0, 0.34),
-    ('#27f4d2', 1, 14.0, 0.67),
-    ('#3671c6', -1, 14.8, 0.17),
-    ('#c8ccd4', -1, 14.8, 0.5),
-    ('#ff87bc', -1, 14.8, 0.84),
+# 11 команд по 2 болида, цвета те же, что на 3D-странице: [корпус, акцент]
+TEAMS = [
+    ('#ff8000', '#111214'), ('#e8002d', '#f5f5f7'), ('#1e2a5a', '#e10600'), ('#c8ccd4', '#00d2be'),
+    ('#0b6b52', '#cedc00'), ('#0a8fd1', '#ff87bc'), ('#1250c9', '#64c4ff'), ('#f5f5f7', '#2b4cff'),
+    ('#6e7176', '#f50537'), ('#dfe1e5', '#d0021b'), ('#141518', '#e8e8e8'),
 ]
+# корпус, акцент, полоса (+1 внешняя, -1 внутренняя), секунд на круг, где он на старте (доля круга).
+# Первая машина команды едет по внешней полосе, вторая по внутренней: полосы с разной скоростью, поэтому идут обгоны
+CARS = [(body, accent, 1 if k == 0 else -1, 14.0 if k == 0 else 14.8, (i + k / 2) / len(TEAMS))
+        for i, (body, accent) in enumerate(TEAMS) for k in (0, 1)]
 
 
 def diamond(cx, cy, hx, hy):
@@ -78,19 +79,19 @@ def make_defs():
         defs += building(f, f * 17)
     for name, color, _ in COMPOUNDS:
         defs += f'<polygon id="r-{name}" points="{diamond(0, 0, HALF_X + 1, HALF_Y + 0.5)}" fill="{color}" stroke="#000" stroke-opacity=".35" stroke-width=".6"/>'
-    for i, (color, _, _, _) in enumerate(CARS):
-        defs += car(i, color)
+    for i, (body, accent, _, _, _) in enumerate(CARS):
+        defs += car(i, body, accent)
     return defs
 
 
-def car(i, color):
+def car(i, color, accent):
     """Болид сверху, носом по +x, центр в (0, 0). Размеры в клетках."""
     wheels = ''.join(f'<rect x="{x}" y="{y}" width="{w}" height=".12" rx=".03" fill="#0d0d0f"/>'
                      for x, w in ((-.5, .26), (.24, .2)) for y in (-.27, .15))
     return (f'<g id="car{i}" transform="scale(1.25)">{wheels}'
-            f'<rect x="-.65" y="-.25" width=".13" height=".5" fill="{color}"/>'   # заднее антикрыло
+            f'<rect x="-.65" y="-.25" width=".13" height=".5" fill="{accent}"/>'   # заднее антикрыло
             f'<polygon points="-.55,-.09 -.1,-.15 .15,-.15 .28,-.06 .58,-.035 .58,.035 .28,.06 .15,.15 -.1,.15 -.55,.09" fill="{color}"/>'
-            f'<rect x=".55" y="-.26" width=".1" height=".52" fill="{color}"/>'   # переднее антикрыло
+            f'<rect x=".55" y="-.26" width=".1" height=".52" fill="{accent}"/>'   # переднее антикрыло
             f'<ellipse cx=".05" rx=".09" ry=".05" fill="#111"/>'   # кокпит
             f'<rect x="-.69" y="-.03" width=".05" height=".06" fill="#ff3b30"/></g>')   # фонарь сзади
 
@@ -134,7 +135,7 @@ def race(weeks):
             out += f'<rect x="{um - .2 + col * .2:.2f}" y="{v1 - half + row * TRACK_W / rows:.3f}" width=".2" height="{TRACK_W / rows:.3f}" fill="{fill}"/>'
 
     shadows, bodies = '', ''
-    for i, (_, lane, lap, start) in enumerate(CARS):
+    for i, (_, _, lane, lap, start) in enumerate(CARS):
         motion = (f'<animateMotion path="{ring(*box(lane * LANE))}" dur="{lap}s" begin="-{lap * start:.2f}s" '
                   f'repeatCount="indefinite" rotate="auto"/>')
         shadows += f'<ellipse rx=".9" ry=".38" fill="#000" opacity=".45">{motion}</ellipse>'
