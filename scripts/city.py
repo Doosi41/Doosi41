@@ -87,14 +87,20 @@ def make_defs():
 
 def car(i, color, accent):
     """Болид сверху, носом по +x, центр в (0, 0). Размеры в клетках."""
-    wheels = ''.join(f'<rect x="{x}" y="{y}" width="{w}" height=".12" rx=".03" fill="#0d0d0f"/>'
+    dark = '#0d0d0f'
+    wheels = ''.join(f'<rect x="{x}" y="{y}" width="{w}" height=".12" rx=".03" fill="{dark}"/>'
                      for x, w in ((-.5, .26), (.24, .2)) for y in (-.27, .15))
-    return (f'<g id="car{i}" transform="scale(.7)">{wheels}'
-            f'<rect x="-.65" y="-.25" width=".13" height=".5" fill="{accent}"/>'   # заднее антикрыло
-            f'<polygon points="-.55,-.09 -.1,-.15 .15,-.15 .28,-.06 .58,-.035 .58,.035 .28,.06 .15,.15 -.1,.15 -.55,.09" fill="{color}"/>'
-            f'<rect x=".55" y="-.26" width=".1" height=".52" fill="{accent}"/>'   # переднее антикрыло
-            f'<ellipse cx=".05" rx=".09" ry=".05" fill="#111"/>'   # кокпит
-            f'<rect x="-.69" y="-.03" width=".05" height=".06" fill="#ff3b30"/></g>')   # фонарь сзади
+    return (f'<g id="car{i}" transform="scale(.85)">{wheels}'
+            f'<rect x="-.67" y="-.25" width=".14" height=".5" fill="{accent}"/>'   # заднее антикрыло
+            f'<rect x="-.67" y="-.27" width=".14" height=".04" fill="{dark}"/><rect x="-.67" y=".23" width=".14" height=".04" fill="{dark}"/>'
+            f'<polygon points="-.55,-.1 -.12,-.19 .14,-.19 .26,-.07 .6,-.035 .6,.035 .26,.07 .14,.19 -.12,.19 -.55,.1" fill="{color}"/>'   # корпус с понтонами
+            f'<polygon points="-.5,-.06 .05,-.07 .05,.07 -.5,.06" fill="{accent}"/>'   # кожух двигателя
+            f'<rect x=".12" y="-.17" width=".03" height=".08" fill="{dark}"/><rect x=".12" y=".09" width=".03" height=".08" fill="{dark}"/>'   # воздухозаборники
+            f'<rect x=".56" y="-.27" width=".1" height=".54" fill="{accent}"/>'   # переднее антикрыло
+            f'<rect x=".54" y="-.29" width=".14" height=".035" fill="{dark}"/><rect x=".54" y=".255" width=".14" height=".035" fill="{dark}"/>'
+            f'<ellipse cx=".12" rx=".1" ry=".055" fill="#111"/><circle cx=".12" r=".04" fill="{accent}"/>'   # кокпит и шлем
+            f'<path d="M.24,0 L.08,-.05 M.24,0 L.08,.05" stroke="{dark}" stroke-width=".02" fill="none"/>'   # halo
+            f'<rect x="-.71" y="-.03" width=".05" height=".06" fill="#ff3b30"/></g>')   # фонарь сзади
 
 
 def city_route(weeks, busy):
@@ -202,7 +208,7 @@ def race(corners):
         motion = (f'<animateMotion dur="{lap:.2f}s" begin="-{lap * i / len(CARS):.2f}s" repeatCount="indefinite" '
                   f'rotate="auto" calcMode="linear" keyPoints="{";".join(points)}" keyTimes="{";".join(times)}">'
                   f'<mpath xlink:href="#lap"/></animateMotion>')
-        shadows += f'<ellipse rx=".5" ry=".21" fill="#000" opacity=".45">{motion}</ellipse>'
+        shadows += f'<ellipse rx=".62" ry=".26" fill="#000" opacity=".45">{motion}</ellipse>'
         bodies += f'<use href="#car{i}">{motion}</use>'
     # корпус чуть приподнят над тенью: сдвиг (-l, -l) в сетке - это ровно вверх на экране
     return out + shadows + f'<g transform="translate(-.08 -.08)">{bodies}</g>'

@@ -132,6 +132,7 @@
 <script type="module">
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 
 /* Один день — одно здание. Чем больше коммитов, тем больше этажей. Крыша красится по «составу шин» (wet → hard).
    Дни без коммитов — лужайка или тротуар, а по части из них петляет трасса. Её главная прямая с питлейном — на юге. */
@@ -326,7 +327,7 @@ const TEAMS = [   // [корпус, акцент]
 // пилоты 2026 года, по командам в том же порядке, что TEAMS
 const DRIVERS = [['Norris', 'Piastri'], ['Leclerc', 'Hamilton'], ['Verstappen', 'Hadjar'], ['Russell', 'Antonelli'], ['Alonso', 'Stroll'],
   ['Gasly', 'Colapinto'], ['Albon', 'Sainz'], ['Lawson', 'Lindblad'], ['Hülkenberg', 'Bortoleto'], ['Ocon', 'Bearman'], ['Pérez', 'Bottas']];
-const LANE = 0.75, TOP_SPEED = 12.5, FOLLOW = 1.5, CAR_W = 0.44, CAR_L = 0.95;   // сдвиг для обгона на главной прямой; скорость в клетках в секунду; дистанция; габариты болида
+const LANE = 0.75, TOP_SPEED = 12.5, FOLLOW = 1.85, CAR_W = 0.56, CAR_L = 1.22, CAR_SCALE = 0.9;   // сдвиг для обгона на главной прямой; скорость в клетках в секунду; дистанция; габариты болида
 const PIT_V = 5, PIT_STOP = 2.5, BRAKE = 13;   // пит-лейн: скорость и сколько стоят в боксе; торможение
 const CITY_W = 1.2, TURN_COST = 1, OUT_COST = 6, MIN_RUN = 3;   // ширина трассы в городе; маршрут - как в scripts/city.py
 const tyreMat = new THREE.MeshStandardMaterial({ color: '#101012', roughness: 0.85 });
@@ -334,27 +335,69 @@ const carbonMat = new THREE.MeshStandardMaterial({ color: '#1a1b1f', roughness: 
 const rainLightMat = new THREE.MeshStandardMaterial({ color: '#400', emissive: '#ff2020', emissiveIntensity: 2 });
 const wheelGeo = new THREE.CylinderGeometry(1, 1, 1, 14).rotateX(Math.PI / 2);   // ось колеса вдоль z
 
-function buildCar([body, accent]) {   // носом по +x
+const rimMat = new THREE.MeshStandardMaterial({ color: '#c9ccd2', roughness: 0.3, metalness: 0.8 });
+const wedge = t => new THREE.CylinderGeometry(0.7071 * t, 0.7071, 1, 4, 1).rotateY(Math.PI / 4).rotateZ(-Math.PI / 2).translate(0, 0.5, 0);   // брусок, сужается к +x
+const noseGeo = wedge(0.45), coverGeo = wedge(0.4);
+
+function buildCar([body, accent]) {   // носом по +x; детали одного материала склеены в один меш, чтобы 22 болида не тормозили
   const g = new THREE.Group();
   const bodyMat = new THREE.MeshStandardMaterial({ color: body, roughness: 0.3, metalness: 0.1, emissive: body, emissiveIntensity: 0.12 });
   const accentMat = new THREE.MeshStandardMaterial({ color: accent, roughness: 0.35, metalness: 0.1, emissive: accent, emissiveIntensity: 0.12 });
   g.userData.paint = [bodyMat, accentMat];   // ночью ливрея светится, чтобы болиды было видно
-  const part = (geo, mat, x, y, z, sx, sy, sz) => { const m = new THREE.Mesh(geo, mat); m.position.set(x, y, z); m.scale.set(sx, sy, sz); m.castShadow = true; g.add(m); return m; };
-  part(box, bodyMat, -0.05, 0.05, 0, 0.8, 0.09, 0.2);      // монокок
-  part(box, bodyMat, 0.45, 0.05, 0, 0.3, 0.06, 0.1);       // нос
-  part(box, bodyMat, -0.02, 0.05, 0, 0.36, 0.08, 0.38);    // понтоны
-  part(box, accentMat, -0.25, 0.1, 0, 0.36, 0.1, 0.12);    // кожух двигателя
-  part(box, carbonMat, 0.1, 0.13, 0, 0.16, 0.03, 0.12);    // кокпит
-  part(box, accentMat, 0.6, 0.03, 0, 0.06, 0.02, 0.5);     // переднее антикрыло
-  part(box, accentMat, -0.5, 0.2, 0, 0.08, 0.03, 0.42);    // заднее антикрыло
-  for (const s of [-1, 1]) part(box, carbonMat, -0.5, 0.06, s * 0.2, 0.1, 0.16, 0.015);
-  for (const [x, r] of [[0.33, 0.085], [-0.33, 0.1]]) for (const s of [-1, 1]) part(wheelGeo, tyreMat, x, r, s * 0.22, r, r, 0.09);
-  part(box, rainLightMat, -0.47, 0.07, 0, 0.02, 0.03, 0.05);   // фонарь сзади
+  const parts = new Map([[bodyMat, []], [accentMat, []], [carbonMat, []], [tyreMat, []], [rimMat, []], [rainLightMat, []]]);
+  const m4 = new THREE.Matrix4(), q4 = new THREE.Quaternion(), up = new THREE.Vector3(0, 1, 0);
+  const part = (geo, mat, x, y, z, sx, sy, sz, ry = 0) =>
+    parts.get(mat).push(geo.clone().applyMatrix4(m4.compose(new THREE.Vector3(x, y, z), q4.setFromAxisAngle(up, ry), new THREE.Vector3(sx, sy, sz))));
+  const both = f => { f(1); f(-1); };
+  // корпус
+  part(box, carbonMat, -0.05, 0.018, 0, 1.0, 0.012, 0.48);           // днище
+  part(box, carbonMat, -0.56, 0.018, 0, 0.12, 0.045, 0.36);          // диффузор
+  part(box, bodyMat, 0.08, 0.03, 0, 0.62, 0.09, 0.17);               // монокок
+  part(noseGeo, bodyMat, 0.5, 0.035, 0, 0.3, 0.07, 0.12);            // нос, сужается к носу
+  both(s => {
+    part(box, bodyMat, 0, 0.03, s * 0.15, 0.36, 0.085, 0.13);        // понтон
+    part(coverGeo, bodyMat, -0.27, 0.03, s * 0.13, 0.2, 0.075, 0.11, Math.PI);   // понтон сужается назад
+    part(box, carbonMat, 0.185, 0.075, s * 0.15, 0.012, 0.035, 0.1); // воздухозаборник понтона
+    part(box, bodyMat, 0.2, 0.15, s * 0.12, 0.02, 0.018, 0.04);      // зеркало
+    part(box, carbonMat, 0.2, 0.11, s * 0.11, 0.008, 0.04, 0.008);
+  });
+  part(coverGeo, accentMat, -0.25, 0.09, 0, 0.42, 0.08, 0.15, Math.PI);   // кожух двигателя
+  part(box, bodyMat, -0.3, 0.15, 0, 0.26, 0.05, 0.008);              // плавник
+  part(box, bodyMat, 0.03, 0.12, 0, 0.1, 0.09, 0.075);               // воздухозаборник над головой
+  part(box, carbonMat, 0.082, 0.17, 0, 0.01, 0.035, 0.05);
+  // кокпит, пилот, halo
+  part(box, carbonMat, 0.16, 0.115, 0, 0.14, 0.01, 0.11);
+  part(sphere, accentMat, 0.14, 0.145, 0, 0.075, 0.075, 0.075);      // шлем
+  part(box, carbonMat, 0.172, 0.142, 0, 0.012, 0.014, 0.05);         // визор
+  part(box, carbonMat, 0.235, 0.12, 0, 0.014, 0.065, 0.014);         // halo: стойка
+  both(s => part(box, carbonMat, 0.15, 0.183, s * 0.05, 0.18, 0.012, 0.012));
+  // переднее антикрыло: два элемента и законцовки
+  part(box, accentMat, 0.64, 0.012, 0, 0.08, 0.012, 0.58);
+  part(box, bodyMat, 0.6, 0.028, 0, 0.05, 0.01, 0.54);
+  both(s => part(box, carbonMat, 0.63, 0.012, s * 0.29, 0.13, 0.05, 0.01));
+  // заднее антикрыло: основной элемент, закрылок DRS, законцовки, стойка, нижнее крыло
+  part(box, accentMat, -0.58, 0.22, 0, 0.1, 0.016, 0.46);
+  part(box, bodyMat, -0.555, 0.242, 0, 0.06, 0.012, 0.44);
+  both(s => part(box, bodyMat, -0.58, 0.11, s * 0.235, 0.15, 0.16, 0.012));
+  part(box, carbonMat, -0.55, 0.1, 0, 0.03, 0.12, 0.02);
+  part(box, carbonMat, -0.6, 0.09, 0, 0.05, 0.01, 0.3);
+  part(box, rainLightMat, -0.625, 0.07, 0, 0.015, 0.03, 0.05);       // фонарь сзади
+  // колёса с дисками и подвеска
+  for (const [x, r, w] of [[0.38, 0.085, 0.095], [-0.38, 0.1, 0.12]]) both(s => {
+    const z = s * (x > 0 ? 0.235 : 0.24);
+    part(wheelGeo, tyreMat, x, r, z, r, r, w);
+    part(wheelGeo, rimMat, x, r, z, r * 0.62, r * 0.62, w + 0.006);
+    for (const y of [0.06, 0.105]) part(box, carbonMat, x, y, s * 0.15, 0.012, 0.008, 0.15);
+  });
+  for (const [mat, list] of parts) {
+    const mesh = new THREE.Mesh(mergeGeometries(list), mat);
+    mesh.castShadow = true; g.add(mesh);
+  }
   return g;
 }
 const cars = TEAMS.flatMap((team, i) => [0, 1].map(k => {
   const mesh = buildCar(team);
-  mesh.scale.setScalar(0.75);   // помещается в одну клетку
+  mesh.scale.setScalar(CAR_SCALE);
   scene.add(mesh);
   // у каждого своя скорость, своя манера резать повороты и любимая сторона трассы
   return { mesh, team: i, no: i * 2 + k + 1, name: DRIVERS[i][k], vmax: TOP_SPEED * (0.93 + 0.07 * hash(i, k + 5)),
@@ -483,7 +526,7 @@ const crossed = (a, b, x) => b >= a ? a < x && x <= b : x > a || x <= b;        
 const cornerV = (c, r) => c.vmax * c.form * Math.min(0.65, Math.max(0.42, 0.3 + 0.2 * r));   // в повороте пошире можно быстрее
 function limAt(s) {   // докуда центр болида может отойти от оси, не заезжая на поребрик
   const q = pathAt(track, s), g = track.segs[q.i];
-  return (g.arc ? g.w : edgeWidth(g.edge, q.local + g.e0)) / 2 - 0.22;
+  return (g.arc ? g.w : edgeWidth(g.edge, q.local + g.e0)) / 2 - (CAR_W / 2 + 0.02);
 }
 
 function lineOffset(c, q, g, lim) {   // траектория: перед поворотом снаружи, у апекса внутри, на выходе снова снаружи
@@ -504,7 +547,7 @@ function pitStep(c, dt) {
   /* Пит-лейн: быстрая полоса посередине и полоса боксов у гаражей. У каждого бокса два места - сам бокс и сразу за ним,
      как при двойном пит-стопе. Место выбираем при въезде; если оба заняты - проезжаем насквозь.
      По быстрой полосе едут друг за другом, из бокса выезжают, только когда в быстрой полосе свободно. */
-  const P = c.pit, len = pit.path.len, inLane = o => o !== c && o.pit && o.off > -0.4;
+  const P = c.pit, len = pit.path.len, inLane = o => o !== c && o.pit && o.off > -0.5;
   if (P.slot === undefined) {
     const taken = x => cars.some(o => o !== c && o.pit && o.pit.slot != null && !o.pit.done && Math.abs(o.pit.slot - x) < CAR_L + 0.2);
     const b = pit.box[c.team], back = b - CAR_L - 0.4;
@@ -514,7 +557,7 @@ function pitStep(c, dt) {
   let target = PIT_V;
   if (stopping) target = Math.min(target, Math.sqrt(10 * Math.max(0, P.slot - P.p)));   // тормозим к своему месту
   for (const o of cars) if (inLane(o)) { const d = o.pit.p - P.p; if (d > 0 && d < FOLLOW + 1.5) target = Math.min(target, o.v + (d - FOLLOW) * 2); }
-  const leaving = P.done && c.off < -0.4;   // ещё в боксе: выезжаем, только если в быстрой полосе никого рядом
+  const leaving = P.done && c.off < -0.5;   // ещё в боксе: выезжаем, только если в быстрой полосе никого рядом
   const wait = leaving && cars.some(o => inLane(o) && o.pit.p - P.p > -2.5 && o.pit.p - P.p < CAR_L + 0.3);
   if (wait) target = 0;
   if (P.p >= pit.hold - 0.3 && !P.go) {   // выезд: вливаемся, если сзади по нашей стороне есть место затормозить
@@ -524,7 +567,7 @@ function pitStep(c, dt) {
   }
   if (stopping && P.slot - P.p < 0.05) {   // стоим: механики меняют шины
     c.v = 0;
-    if (c.off < -0.45 && (P.stop += dt) >= PIT_STOP) P.done = true;
+    if (c.off < -0.55 && (P.stop += dt) >= PIT_STOP) P.done = true;
   } else c.v = Math.max(0, c.v + Math.max(-10 * dt, Math.min(4 * dt, target - c.v)));
   if (!P.go && P.p + c.v * dt > pit.hold) { P.p = pit.hold; c.v = 0; }   // ждём у линии выезда
   P.p += c.v * dt; c.dist += c.v * dt * pit.skip / len;
@@ -532,7 +575,7 @@ function pitStep(c, dt) {
     c.s = (pit.sOut + P.p - len) % track.len; c.off += PIT_SIDE; c.pit = null; c.seg = -1; c.cool = 1; c.pitAt = raceT + 70 + Math.random() * 80;
     place(c, 0); return;
   }
-  const want = stopping && P.slot - P.p < 1.2 ? -0.5 : 0;   // к своему месту - в полосу боксов
+  const want = stopping && P.slot - P.p < 1.4 ? -0.58 : 0;   // к своему месту - в полосу боксов
   const side = wait ? 0 : Math.max(-1.2 * dt, Math.min(1.2 * dt, want - c.off));
   c.off += side;
   place(c, side / Math.max(dt, 1e-3));
@@ -773,7 +816,7 @@ function build(from, to) {
   const verts = [], idx = [], kerbs = [], prev = [null, null], walked = [0, 0];
   const steps = Math.ceil(track.len / 0.15);
   for (let k = 0; k <= steps; k++) {
-    const sk = (k / steps) * track.len, q = pathAt(track, sk % track.len), h = limAt(sk % track.len) + 0.22;
+    const sk = (k / steps) * track.len, q = pathAt(track, sk % track.len), h = limAt(sk % track.len) + CAR_W / 2 + 0.02;
     const nx = -Math.sin(q.th), nz = Math.cos(q.th);
     [[q.x + nx * h, q.z + nz * h], [q.x - nx * h, q.z - nz * h]].forEach(([x, z], side) => {
       verts.push(x, 0.04, z);
