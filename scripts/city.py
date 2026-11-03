@@ -36,7 +36,9 @@ TRACK_W = 0.7        # ширина асфальта
 CORNER_R = 0.5       # радиус поворота в городе: полклетки
 OUTSIDE = 1.7        # главная прямая и боковые связки идут на столько клеток дальше крайних клеток квартала
 SPEED = 10           # клеток в секунду на прямой, в повороте вдвое медленнее
-TURN_COST, OUT_COST = 2, 6   # поиск маршрута: штраф за поворот и за клетку улицы за дальним краем (ряд -1)
+# маршрут: каждый пустой день на пути - плюс, поворот - минус TURN_COST, клетка улицы за дальним краем (ряд -1) - минус OUT_COST;
+# между двумя поворотами поперёк недель не меньше MIN_RUN клеток, чтобы соседние куски трассы не слипались
+TURN_COST, OUT_COST, MIN_RUN = 1, 6, 3
 # 11 команд по 2 болида, цвета те же, что на 3D-странице: [корпус, акцент]
 TEAMS = [
     ('#ff8000', '#111214'), ('#e8002d', '#f5f5f7'), ('#1e2a5a', '#e10600'), ('#c8ccd4', '#00d2be'),
@@ -96,43 +98,49 @@ def car(i, color, accent):
 
 
 def city_route(weeks, busy):
-    """Путь через город с востока на запад по дням без коммитов: как можно меньше поворотов, дома объезжаем.
-    Ряд -1 - улица за дальним краем квартала, туда трасса уходит, только если иначе не проехать.
-    Цены целые, поэтому Дейкстра идёт по корзинам - 3D-страница делает то же самое и находит такой же путь."""
-    def cost(w, r):
-        if w < 0:
-            return 1   # выезд из города на запад
+    """Путь через город с востока на запад по дням без коммитов. Чем больше пустых дней он соберёт, тем лучше,
+    поэтому на пустых местах трасса идёт змейкой, а среди домов петляет между ними.
+    Путь идёт только на запад и не разворачивается, поэтому хватает динамики по неделям.
+    Ровно тот же расчёт (тот же порядок, целые числа) делает 3D-страница, трассы совпадают."""
+    def cell(w, r):
         if r < 0:
             return OUT_COST
-        return None if (w, r) in busy else 1
+        return None if (w, r) in busy else -1
 
-    moves = ((-1, 0), (0, 1), (0, -1))   # на запад, к ближнему краю, к дальнему
-    best, prev, buckets = {}, {}, []
+    best, prev = {}, {}
 
-    def push(state, d, frm):
-        if d < best.get(state, d + 1):
-            best[state], prev[state] = d, frm
-            buckets.extend([] for _ in range(d + 1 - len(buckets)))
-            buckets[d].append(state)
+    def relax(state, value, frm):
+        if value < best.get(state, math.inf):
+            best[state], prev[state] = value, frm
 
+    # состояние: (неделя, ряд, куда едем: 0 - на запад, 1 - к ближнему краю, 2 - к дальнему, сколько клеток уже на запад)
     for r in range(-1, 7):
-        if cost(weeks - 1, r) is not None:
-            push((weeks - 1, r, 0), cost(weeks - 1, r), None)
-    for d in range(10 ** 6):
-        for state in buckets[d]:
-            if best[state] != d:
-                continue
-            w, r, k = state
-            if w < 0:   # выехали на запад: собираем путь с конца
-                path, state = [], prev[state]
-                while state:
-                    path.append(state[:2])
-                    state = prev[state]
-                return path[::-1]
-            for nk, (dw, dr) in enumerate(moves):
-                c = cost(w + dw, r + dr) if r + dr <= 6 and r + dr >= -1 else None
-                if c is not None and k + nk != 3:   # 1 + 2: вверх сразу после вниз - разворот, нельзя
-                    push((w + dw, r + dr, nk), d + c + (TURN_COST if nk != k else 0), state)
+        if cell(weeks - 1, r) is not None:
+            relax((weeks - 1, r, 0, MIN_RUN), cell(weeks - 1, r), None)
+    for w in range(weeks - 1, -1, -1):
+        # вдоль недели: к ближнему краю ряды по возрастанию, к дальнему - по убыванию
+        for k, rows, dr in ((1, range(-1, 6), 1), (2, range(6, -1, -1), -1)):
+            for r in rows:
+                for st in [(w, r, 0, j) for j in range(MIN_RUN, MIN_RUN + 1)] + [(w, r, k, 0)]:
+                    if st in best and cell(w, r + dr) is not None:
+                        relax((w, r + dr, k, 0), best[st] + cell(w, r + dr) + (0 if st[2] == k else TURN_COST), st)
+        for r in range(-1, 7):   # на запад; из недели 0 - выезд на западную связку
+            for st in [(w, r, 0, j) for j in range(1, MIN_RUN + 1)] + [(w, r, 1, 0), (w, r, 2, 0)]:
+                c = 0 if w == 0 else cell(w - 1, r)
+                if st in best and c is not None:
+                    run = min(st[3] + 1, MIN_RUN) if st[2] == 0 else 1
+                    relax((w - 1, r, 0, run), best[st] + c + (0 if st[2] == 0 else TURN_COST), st)
+    end = None
+    for r in range(-1, 7):
+        for j in range(1, MIN_RUN + 1):
+            st = (-1, r, 0, j)
+            if st in best and (end is None or best[st] < best[end]):
+                end = st
+    path, st = [], prev[end]
+    while st:
+        path.append(st[:2])
+        st = prev[st]
+    return path[::-1]
 
 
 def circuit(weeks, route):
@@ -156,7 +164,7 @@ def race(corners):
         return dx / length, dy / length, length
 
     start = ((corners[0][0] + corners[1][0]) / 2, corners[0][1])   # старт-финиш посередине главной прямой
-    d, kerbs, segs, cur = f'M{start[0]:.2f},{start[1]:.2f}', '', [], start
+    d, segs, cur = f'M{start[0]:.2f},{start[1]:.2f}', [], start
     for j in range(1, n + 1):
         i = j % n
         p = corners[i]
@@ -167,15 +175,13 @@ def race(corners):
         b = (p[0] + ox * r, p[1] + oy * r)
         arc = f'A{r:.2f},{r:.2f} 0 0 {1 if ix * oy - iy * ox > 0 else 0} {b[0]:.2f},{b[1]:.2f}'
         d += f' L{a[0]:.2f},{a[1]:.2f} {arc}'
-        kerbs += f'M{a[0]:.2f},{a[1]:.2f} {arc}'
         segs += [(math.dist(cur, a), SPEED), (math.pi * r / 2, SPEED / 2)]
         cur = b
     segs.append((math.dist(cur, start), SPEED))
 
     out = f'<defs><path id="lap" d="{d} Z"/></defs>'
-    out += f'<use href="#lap" fill="none" stroke="#f2f2f7" stroke-opacity=".55" stroke-width="{TRACK_W + .2}"/>'   # белые кромки
-    out += (f'<path d="{kerbs}" fill="none" stroke="#f2f2f7" stroke-width="{TRACK_W + .2}"/>'   # поребрики в поворотах
-            f'<path d="{kerbs}" fill="none" stroke="#ff3b30" stroke-width="{TRACK_W + .2}" stroke-dasharray=".16 .16"/>')
+    out += (f'<use href="#lap" fill="none" stroke="#f2f2f7" stroke-width="{TRACK_W + .2}"/>'   # красно-белые поребрики по всей кромке
+            f'<use href="#lap" fill="none" stroke="#ff3b30" stroke-width="{TRACK_W + .2}" stroke-dasharray=".16 .16"/>')
     out += f'<use href="#lap" fill="none" stroke="#2b2d33" stroke-width="{TRACK_W}"/>'
     sq = TRACK_W / 4   # клетчатая линия старт-финиш
     for row in range(4):
