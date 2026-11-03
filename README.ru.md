@@ -15,8 +15,6 @@
 
 <a href="https://github.com/a1tvv/rentui.kg"><img src="assets/ru/projects/rentui-kg.svg" alt="rentui.kg — Аренда жилья в Кыргызстане — напрямую от хозяев" width="100%"></a>
 <a href="https://github.com/a1tvv/gb-ansar"><img src="assets/ru/projects/gb-ansar.svg" alt="gb-ansar — ИИ-каталог товаров для склада Ansar Home" width="100%"></a>
-<a href="https://github.com/a1tvv/ai_office"><img src="assets/ru/projects/ai-office.svg" alt="ai_office — Система Telegram-ботов — у каждого бота своя ИИ-личность" width="100%"></a>
-<a href="https://github.com/a1tvv/ansar_os"><img src="assets/ru/projects/ansar-os.svg" alt="ansar_os — Внутренняя система отчётов о продажах для магазинов Ansar" width="100%"></a>
 <a href="https://github.com/a1tvv/olymp"><img src="assets/ru/projects/olymp.svg" alt="olymp — Решения олимпиадных задач. README обновляется сам" width="100%"></a>
 
 <br>
