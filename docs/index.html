@@ -319,15 +319,15 @@ scene.add(heli);
 
 // ── болиды: 11 команд по 2 машины ──
 const TEAMS = [   // [корпус, акцент]
-  ['#ff8000', '#111214'], ['#e8002d', '#f5f5f7'], ['#1e2a5a', '#e10600'], ['#c8ccd4', '#00d2be'],
-  ['#0b6b52', '#cedc00'], ['#0a8fd1', '#ff87bc'], ['#1250c9', '#64c4ff'], ['#f5f5f7', '#2b4cff'],
-  ['#6e7176', '#f50537'], ['#dfe1e5', '#d0021b'], ['#141518', '#e8e8e8'],
+  ['#ff8a00', '#1b1b1f'], ['#ff1a2d', '#ffffff'], ['#2a46c8', '#ff2a2a'], ['#dfe3ea', '#00f0d0'],
+  ['#0fa37a', '#d8ff1a'], ['#19a8ff', '#ff6ec7'], ['#2470ff', '#7fd8ff'], ['#ffffff', '#3d5cff'],
+  ['#a3a9b1', '#ff1f4b'], ['#f4f4f4', '#ff2424'], ['#1c1d21', '#f4f4f4'],
 ];
 // пилоты 2026 года, по командам в том же порядке, что TEAMS
 const DRIVERS = [['Norris', 'Piastri'], ['Leclerc', 'Hamilton'], ['Verstappen', 'Hadjar'], ['Russell', 'Antonelli'], ['Alonso', 'Stroll'],
   ['Gasly', 'Colapinto'], ['Albon', 'Sainz'], ['Lawson', 'Lindblad'], ['Hülkenberg', 'Bortoleto'], ['Ocon', 'Bearman'], ['Pérez', 'Bottas']];
-const LANE = 0.75, TOP_SPEED = 9, FOLLOW = 1.5, CAR_W = 0.44, CAR_L = 0.95;   // сдвиг для обгона на главной прямой; скорость в клетках в секунду; дистанция; габариты болида
-const PIT_V = 4, PIT_STOP = 2.5, BRAKE = 9;   // пит-лейн: скорость и сколько стоят в боксе; торможение
+const LANE = 0.75, TOP_SPEED = 12.5, FOLLOW = 1.5, CAR_W = 0.44, CAR_L = 0.95;   // сдвиг для обгона на главной прямой; скорость в клетках в секунду; дистанция; габариты болида
+const PIT_V = 5, PIT_STOP = 2.5, BRAKE = 13;   // пит-лейн: скорость и сколько стоят в боксе; торможение
 const CITY_W = 1.0, TURN_COST = 1, OUT_COST = 6, MIN_RUN = 3;   // ширина трассы в городе; маршрут - как в scripts/city.py
 const tyreMat = new THREE.MeshStandardMaterial({ color: '#101012', roughness: 0.85 });
 const carbonMat = new THREE.MeshStandardMaterial({ color: '#1a1b1f', roughness: 0.5, metalness: 0.3 });
@@ -336,8 +336,8 @@ const wheelGeo = new THREE.CylinderGeometry(1, 1, 1, 14).rotateX(Math.PI / 2);  
 
 function buildCar([body, accent]) {   // носом по +x
   const g = new THREE.Group();
-  const bodyMat = new THREE.MeshStandardMaterial({ color: body, roughness: 0.35, metalness: 0.35, emissive: body, emissiveIntensity: 0 });
-  const accentMat = new THREE.MeshStandardMaterial({ color: accent, roughness: 0.4, metalness: 0.2, emissive: accent, emissiveIntensity: 0 });
+  const bodyMat = new THREE.MeshStandardMaterial({ color: body, roughness: 0.3, metalness: 0.1, emissive: body, emissiveIntensity: 0.12 });
+  const accentMat = new THREE.MeshStandardMaterial({ color: accent, roughness: 0.35, metalness: 0.1, emissive: accent, emissiveIntensity: 0.12 });
   g.userData.paint = [bodyMat, accentMat];   // ночью ливрея светится, чтобы болиды было видно
   const part = (geo, mat, x, y, z, sx, sy, sz) => { const m = new THREE.Mesh(geo, mat); m.position.set(x, y, z); m.scale.set(sx, sy, sz); m.castShadow = true; g.add(m); return m; };
   part(box, bodyMat, -0.05, 0.05, 0, 0.8, 0.09, 0.2);      // монокок
@@ -412,22 +412,6 @@ function edgeWidth(e, t) {   // сужается плавно, без углов
   const k = Math.min(1, Math.max(0, (u - a) / (b - a)));
   return wide + (narrow - wide) * k * k * (3 - 2 * k);
 }
-function edgeBreaks(e) {   // точки, по которым рисуются асфальт и поребрики на сужении
-  if (e.wa === e.wb) return [];
-  const [a, b] = taper(e), out = [];
-  for (let k = 0; k <= 24; k++) { const u = a + (b - a) * k / 24; out.push(e.wa > e.wb ? u : e.len - u); }
-  return e.wa > e.wb ? out : out.reverse();
-}
-function kerbLine(out, pts) {   // красно-белые кирпичики вдоль ломаной кромки, без пропусков
-  let k = 0;
-  for (let j = 1; j < pts.length; j++) {
-    const [ax, az] = pts[j - 1], [bx, bz] = pts[j], len = Math.hypot(bx - ax, bz - az);
-    if (len < 1e-6) continue;
-    const pieces = Math.max(1, Math.round(len / 0.4)), ang = Math.atan2(bz - az, bx - ax);
-    for (let m = 0; m < pieces; m++, k++) { const t = (m + 0.5) / pieces; out.push([ax + (bx - ax) * t, az + (bz - az) * t, len / pieces, ang, k % 2]); }
-  }
-}
-
 function setTrack(pts, flagX) {   // pts: углы [x, z, радиус, ширина]; от угла 0 к углу 1 - главная прямая
   const old = track, n = pts.length, segs = [];
   const dir = (a, b) => { const dx = b[0] - a[0], dz = b[1] - a[1], l = Math.hypot(dx, dz); return [dx / l, dz / l, l]; };
@@ -589,7 +573,7 @@ function race(dt) {
     }
     if (c.attack && (g.arc || merging || c.attack.rival.pit || (c.attack.t -= dt) <= 0 || wrap(c.s - c.attack.rival.s) > CAR_L + 0.3)) { c.attack = null; c.cool = 1.5; }
     if (ahead && gap < FOLLOW + 1.5) target = Math.min(target, ahead.v + (gap - FOLLOW) * 2);   // держим дистанцию
-    c.v = Math.max(0, c.v + Math.max(-14 * dt, Math.min(4.5 * dt, target - c.v)));
+    c.v = Math.max(0, c.v + Math.max(-18 * dt, Math.min(6.5 * dt, target - c.v)));
     if (ahead && gap < FOLLOW * 0.7) c.v = Math.min(c.v, ahead.v * 0.8);   // слишком близко: пропускаем вперёд
     const was = c.s;
     c.s = (c.s + c.v * dt) % L; c.dist += c.v * dt;
@@ -783,40 +767,42 @@ function build(from, to) {
   const corners = pts.filter((p, i) => {   // оставляем только углы
     const a = pts[(i + pts.length - 1) % pts.length], b = pts[(i + 1) % pts.length];
     return !(a[0] === p[0] && p[0] === b[0]) && !(a[1] === p[1] && p[1] === b[1]);
-  }).map((p, i) => [p[0], p[1], i < 2 ? TRACK_W / 2 : CELL / 2, i < 2 ? TRACK_W : CITY_W]);   // [x, z, радиус, ширина]
-  const nc = corners.length, kerbs = [];
-  const turn = i => { const a = corners[(i + nc - 1) % nc], p = corners[i], b = corners[(i + 1) % nc]; return Math.sign((p[0] - a[0]) * (b[1] - p[1]) - (p[1] - a[1]) * (b[0] - p[0])); };
-  corners.forEach((p, i) => {   // асфальт от угла до угла и поребрики по обеим кромкам, в поворотах тоже
-    const q = corners[(i + 1) % nc], e = edgeOf(p, q), dx = (q[0] - p[0]) / e.len, dz = (q[1] - p[1]) / e.len, breaks = edgeBreaks(e);
-    const at = (t, side) => { const h = edgeWidth(e, Math.min(Math.max(t, 0), e.len)) / 2 * side; return [p[0] + dx * t - dz * h, p[1] + dz * t + dx * h]; };
-    const verts = [], idx = [];
-    [-e.wa / 2, ...breaks, e.len + e.wb / 2].forEach((t, k) => {   // полоса заходит на углы, чтобы повороты были закрыты асфальтом
-      for (const side of [1, -1]) { const [x, z] = at(t, side); verts.push(x, 0.04, z); }
-      if (k) idx.push(2 * k - 2, 2 * k, 2 * k - 1, 2 * k - 1, 2 * k, 2 * k + 1);   // лицом вверх
+  }).map((p, i) => [p[0], p[1], i < 2 ? 2.5 : CELL / 2, i < 2 ? TRACK_W : CITY_W]);   // [x, z, радиус, ширина]
+  setTrack(corners, -W / 4);
+  // асфальт - лента вдоль оси трассы с плавными поворотами, как на картинке в README; поребрики по обеим кромкам
+  const verts = [], idx = [], kerbs = [], prev = [null, null], walked = [0, 0];
+  const steps = Math.ceil(track.len / 0.15);
+  for (let k = 0; k <= steps; k++) {
+    const sk = (k / steps) * track.len, q = pathAt(track, sk % track.len), h = limAt(sk % track.len) + 0.22;
+    const nx = -Math.sin(q.th), nz = Math.cos(q.th);
+    [[q.x + nx * h, q.z + nz * h], [q.x - nx * h, q.z - nz * h]].forEach(([x, z], side) => {
+      verts.push(x, 0.04, z);
+      if (prev[side]) {   // кирпичик поребрика от прошлой точки кромки до этой, цвет меняется каждые 0,45 клетки
+        const [px, pz] = prev[side], len = Math.hypot(x - px, z - pz);
+        kerbs.push([(x + px) / 2, (z + pz) / 2, len, Math.atan2(z - pz, x - px), Math.floor((walked[side] + len / 2) / 0.45) % 2]);
+        walked[side] += len;
+      }
+      prev[side] = [x, z];
     });
-    const geo = new THREE.BufferGeometry();
-    geo.setAttribute('position', new THREE.Float32BufferAttribute(verts, 3));
-    geo.setAttribute('normal', new THREE.Float32BufferAttribute(verts.map((_, j) => j % 3 === 1 ? 1 : 0), 3));
-    geo.setIndex(idx);
-    const strip = new THREE.Mesh(geo, trackMat); strip.receiveShadow = true; world.add(strip);
-    for (const side of [1, -1]) {   // внешняя кромка доходит до угла поворота, внутренняя - до внутреннего угла
-      const inner = k => (side > 0) === (turn(k) > 0);
-      const t0 = inner(i) ? e.wa / 2 : -e.wa / 2, t1 = inner((i + 1) % nc) ? e.len - e.wb / 2 : e.len + e.wb / 2;
-      kerbLine(kerbs, [t0, ...breaks.filter(t => t > t0 && t < t1), t1].map(t => at(t, side)));
-    }
-  });
+    if (k) idx.push(2 * k - 2, 2 * k, 2 * k - 1, 2 * k - 1, 2 * k, 2 * k + 1);   // лицом вверх
+  }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.Float32BufferAttribute(verts, 3));
+  geo.setAttribute('normal', new THREE.Float32BufferAttribute(verts.map((_, j) => j % 3 === 1 ? 1 : 0), 3));
+  geo.setIndex(idx);
+  const ribbon = new THREE.Mesh(geo, trackMat); ribbon.receiveShadow = true; world.add(ribbon);
   const pitLane = new THREE.Mesh(box, trackMat); pitLane.position.set(0, 0, laneZ); pitLane.scale.set(xEast - xWest, 0.045, laneW);   // с въездом и выездом на связки
   pitLane.receiveShadow = true; world.add(pitLane);
   const kerbMesh = instanced(box, kerbMat, kerbs.length);
   kerbMesh.castShadow = false;
   kerbs.forEach(([x, z, len, ang, red], i) => {
-    dummy.rotation.set(0, -ang, 0); dummy.position.set(x, 0.03, z); dummy.scale.set(len + 0.01, 0.03, 0.16); dummy.updateMatrix(); kerbMesh.setMatrixAt(i, dummy.matrix);
+    dummy.rotation.set(0, -ang, 0); dummy.position.set(x, 0.03, z); dummy.scale.set(len + 0.02, 0.03, 0.16); dummy.updateMatrix(); kerbMesh.setMatrixAt(i, dummy.matrix);
     kerbMesh.setColorAt(i, new THREE.Color(red ? '#d3141f' : '#f1f1ee'));
   });
   world.add(kerbMesh);
   // осевая пунктирная линия главной прямой и финишная
   const tl = [];
-  for (let x = xWest; x < xEast; x += 1.3) tl.push([x, zSouth, 0.7, 0.06]);
+  for (let x = xWest + 3; x < xEast - 3; x += 1.3) tl.push([x, zSouth, 0.7, 0.06]);   // только на прямой, не в поворотах
   const tlm = instanced(box, lineMat, tl.length); tlm.castShadow = false;
   tl.forEach(([x, z, sx, sz], i) => { dummy.rotation.set(0, 0, 0); dummy.position.set(x, 0.045, z); dummy.scale.set(sx, 0.004, sz); dummy.updateMatrix(); tlm.setMatrixAt(i, dummy.matrix); });
   world.add(tlm);
@@ -828,7 +814,6 @@ function build(from, to) {
     return new THREE.Mesh(new THREE.PlaneGeometry(0.7, TRACK_W), new THREE.MeshStandardMaterial({ map: t, roughness: 0.8 }));
   })();
   flag.rotation.x = -Math.PI / 2; flag.position.set(-W / 4, 0.047, zSouth); world.add(flag);
-  setTrack(corners, -W / 4);
 
   // пит-комплекс: ряд боксов с открытыми воротами, шины, светофорная рамка, стена
   const bays = Math.max(4, Math.min(12, Math.round(W / 6)));
@@ -978,7 +963,7 @@ function applyNight(n) {
   const bulbs = world.userData.bulbs, door = world.userData.doorMat;
   if (bulbs) bulbs.material.emissiveIntensity = n * 2.2;
   if (door) door.emissiveIntensity = n * 0.9;
-  for (const c of cars) for (const m of c.mesh.userData.paint) m.emissiveIntensity = n * 0.55;
+  for (const c of cars) for (const m of c.mesh.userData.paint) m.emissiveIntensity = 0.12 + n * 0.5;   // днём чуть светится, чтобы цвет был сочнее
   trackMat.emissiveIntensity = n;
   lineMat.emissive.set('#ffffff'); lineMat.emissiveIntensity = n * 0.25;
   rainLightMat.emissiveIntensity = 2 + n * 2;
