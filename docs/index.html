@@ -107,7 +107,7 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 
 /* Один день — одно здание. Чем больше коммитов, тем больше этажей. Крыша красится по «составу шин» (wet → hard).
-   Дни без коммитов — трасса, лужайка или тротуар. Вокруг квартала — трасса с питлейном. */
+   Дни без коммитов — лужайка или тротуар, а по части из них петляет трасса. Её главная прямая с питлейном — на юге. */
 const CELL = 1.2, DAY = 86400000, FLOOR_H = 0.34, MAX_FLOORS = 14, MERGE_MIN = 6;
 const STREET_Z = 1.5, STREET_X = 1.3, BLOCK_W = 4;      // ширина главной улицы и поперечных
 const COMPOUNDS = ['#1a8fff', '#25e060', '#ff2d2d', '#ffe01a', '#ffffff'].map(c => new THREE.Color(c));   // wet, inter, soft, medium, hard
@@ -282,13 +282,14 @@ heli.scale.setScalar(0.8);
 heli.visible = false;
 scene.add(heli);
 
-// ── болиды: 11 команд по 2 машины, гоняют по трассе вокруг квартала ──
+// ── болиды: 11 команд по 2 машины ──
 const TEAMS = [   // [корпус, акцент]
   ['#ff8000', '#111214'], ['#e8002d', '#f5f5f7'], ['#1e2a5a', '#e10600'], ['#c8ccd4', '#00d2be'],
   ['#0b6b52', '#cedc00'], ['#0a8fd1', '#ff87bc'], ['#1250c9', '#64c4ff'], ['#f5f5f7', '#2b4cff'],
   ['#6e7176', '#f50537'], ['#dfe1e5', '#d0021b'], ['#141518', '#e8e8e8'],
 ];
-const LANE = 0.65, CORNER_R = 2.5, TOP_SPEED = 9;   // две полосы: ось ± LANE; скорость в клетках в секунду
+const LANE = 0.65, TOP_SPEED = 9, FOLLOW = 1.5;   // полосы на главной прямой: ось ± LANE; скорость в клетках в секунду; дистанция
+const CITY_W = 1.0, TURN_COST = 2, OUT_COST = 6;   // ширина трассы в городе; штрафы поиска маршрута - как в scripts/city.py
 const tyreMat = new THREE.MeshStandardMaterial({ color: '#101012', roughness: 0.85 });
 const carbonMat = new THREE.MeshStandardMaterial({ color: '#1a1b1f', roughness: 0.5, metalness: 0.3 });
 const rainLightMat = new THREE.MeshStandardMaterial({ color: '#400', emissive: '#ff2020', emissiveIntensity: 2 });
@@ -313,34 +314,71 @@ function buildCar([body, accent]) {   // носом по +x
 }
 const cars = TEAMS.flatMap((team, i) => [0, 1].map(k => {
   const mesh = buildCar(team);
+  mesh.scale.setScalar(0.75);   // помещается в одну клетку
   scene.add(mesh);
   return { mesh, s: 0, lane: 1, off: 0, v: 0, cool: 0, vmax: TOP_SPEED * (0.93 + 0.07 * hash(i, k + 5)) };
 }));
 let track = null;   // ось трассы: прямые и повороты; s - путь вдоль оси от начала главной прямой
 
-function setTrack(x0, x1, z0, z1, startX) {
-  const R = CORNER_R, old = track;
-  const corners = [[x0 + R, z1, 0], [x1, z1 - R, -Math.PI / 2], [x1 - R, z0, -Math.PI], [x0, z0 + R, -Math.PI * 1.5]];
-  const segs = [];
-  corners.forEach(([x, z, th], i) => {   // прямая, потом поворот направо на 90°
-    const len = i % 2 ? z1 - z0 - 2 * R : x1 - x0 - 2 * R;
-    segs.push({ x, z, th, len });
-    const ex = x + Math.cos(th) * len, ez = z + Math.sin(th) * len;
-    segs.push({ arc: true, cx: ex + Math.sin(th) * R, cz: ez - Math.cos(th) * R, th, len: Math.PI * R / 2 });
-  });
+/* Путь через город с востока на запад по дням без коммитов: как можно меньше поворотов, дома объезжаем.
+   Ряд -1 - улица за северным краем квартала, туда трасса уходит, только если иначе не проехать.
+   Ровно тот же поиск (Дейкстра по корзинам, тот же порядок), что в scripts/city.py, поэтому трасса совпадает с README. */
+function cityRoute(weeks, busy) {
+  const cost = (w, r) => w < 0 ? 1 : r < 0 ? OUT_COST : busy.has(w * 7 + r) ? null : 1;
+  const moves = [[-1, 0], [0, 1], [0, -1]];   // на запад, к югу, к северу
+  const key = ([w, r, k]) => ((w + 1) * 8 + r + 1) * 3 + k;
+  const best = new Map(), prev = new Map(), buckets = [];
+  const push = (st, d, from) => {
+    if (best.has(key(st)) && best.get(key(st)) <= d) return;
+    best.set(key(st), d); prev.set(key(st), from);
+    while (buckets.length <= d) buckets.push([]);
+    buckets[d].push(st);
+  };
+  for (let r = -1; r <= 6; r++) if (cost(weeks - 1, r) !== null) push([weeks - 1, r, 0], cost(weeks - 1, r), null);
+  for (let d = 0; d < buckets.length; d++) for (const st of buckets[d]) {
+    if (best.get(key(st)) !== d) continue;
+    const [w, r, k] = st;
+    if (w < 0) {   // выехали на запад: собираем путь с конца
+      const path = [];
+      for (let q = prev.get(key(st)); q; q = prev.get(key(q))) path.push([q[0], q[1]]);
+      return path.reverse();
+    }
+    moves.forEach(([dw, dr], nk) => {
+      const c = r + dr >= -1 && r + dr <= 6 ? cost(w + dw, r + dr) : null;
+      if (c !== null && k + nk !== 3) push([w + dw, r + dr, nk], d + c + (nk !== k ? TURN_COST : 0), st);   // 1 + 2 - разворот
+    });
+  }
+  return [];
+}
+
+function setTrack(pts, flagX) {   // pts: углы [x, z, радиус]; от угла 0 к углу 1 - главная прямая
+  const old = track, n = pts.length, segs = [];
+  const dir = (a, b) => { const dx = b[0] - a[0], dz = b[1] - a[1], l = Math.hypot(dx, dz); return [dx / l, dz / l, l]; };
+  const rad = pts.map((p, i) => Math.min(p[2], dir(pts[(i + n - 1) % n], p)[2] / 2, dir(p, pts[(i + 1) % n])[2] / 2));
+  const [ox, oz] = dir(pts[0], pts[1]);
+  let cx = pts[0][0] + ox * rad[0], cz = pts[0][1] + oz * rad[0];   // конец поворота 0 - начало главной прямой
+  for (let j = 1; j <= n; j++) {   // прямая до угла, потом поворот на 90°
+    const i = j % n, p = pts[i], r = rad[i], [ix, iz] = dir(pts[(i + n - 1) % n], p), [nx, nz] = dir(p, pts[(i + 1) % n]);
+    const ax = p[0] - ix * r, az = p[1] - iz * r, th = Math.atan2(iz, ix), len = Math.hypot(ax - cx, az - cz);
+    if (len > 1e-6) segs.push({ x: cx, z: cz, th, len, wide: j === 1 });
+    const sg = Math.sign(ix * nz - iz * nx);   // +1 - угол направления растёт, -1 - убывает
+    segs.push({ arc: true, cx: ax - Math.sin(th) * r * sg, cz: az + Math.cos(th) * r * sg, th, sg, r, len: Math.PI * r / 2 });
+    cx = p[0] + nx * r; cz = p[1] + nz * r;
+  }
   track = { segs, len: segs.reduce((a, g) => a + g.len, 0) };
   if (old) { for (const c of cars) c.s *= track.len / old.len; return; }
   // первый раз: стартовая решётка за клетчатой линией, по две машины в ряд
-  cars.forEach((c, i) => { c.s = startX - (x0 + R) - 1 - i * 1.3; c.lane = i % 2 ? -1 : 1; c.off = c.lane * LANE; });
+  const s0 = flagX - (pts[0][0] + rad[0]);
+  cars.forEach((c, i) => { c.s = s0 - 1.2 - i; c.lane = i % 2 ? -1 : 1; c.off = c.lane * LANE; });
 }
 
-function trackAt(s) {   // точка оси, направление и сколько осталось до поворота
+function trackAt(s) {   // точка оси, направление, сколько до поворота и сколько ещё широкой главной прямой
   s = ((s % track.len) + track.len) % track.len;
   for (const g of track.segs) {
     if (s < g.len) {
-      if (!g.arc) return { x: g.x + Math.cos(g.th) * s, z: g.z + Math.sin(g.th) * s, th: g.th, toCorner: g.len - s };
-      const th = g.th - s / CORNER_R;
-      return { x: g.cx - Math.sin(th) * CORNER_R, z: g.cz + Math.cos(th) * CORNER_R, th, toCorner: 0 };
+      if (!g.arc) return { x: g.x + Math.cos(g.th) * s, z: g.z + Math.sin(g.th) * s, th: g.th, toCorner: g.len - s, wide: g.wide ? g.len - s : 0 };
+      const th = g.th + g.sg * s / g.r;
+      return { x: g.cx + g.r * g.sg * Math.sin(th), z: g.cz - g.r * g.sg * Math.cos(th), th, toCorner: 0, wide: 0 };
     }
     s -= g.len;
   }
@@ -354,21 +392,21 @@ function race(dt) {
   if (!track) return;
   const L = track.len;
   for (const c of cars) {
-    const p = trackAt(c.s);
+    const p = trackAt(c.s), lanes = p.wide > 4;   // две полосы только на главной прямой, в городе едут друг за другом
     // в повороте медленнее, перед ним тормозим
-    let target = c.vmax * (p.toCorner ? Math.min(1, 0.55 + 0.45 * Math.max(0, (p.toCorner - 1) / 7)) : 0.55);
+    let target = c.vmax * (p.toCorner ? Math.min(1, 0.45 + 0.55 * Math.max(0, (p.toCorner - 0.5) / 6)) : 0.45);
     let ahead = null, gap = Infinity;
-    for (const o of cars) if (o !== c && inLane(o, c.lane)) { const d = (o.s - c.s + L) % L; if (d > 0 && d < gap) { gap = d; ahead = o; } }
+    for (const o of cars) if (o !== c && (!lanes || inLane(o, c.lane))) { const d = (o.s - c.s + L) % L; if (d > 0 && d < gap) { gap = d; ahead = o; } }
     c.cool -= dt;
-    if (ahead && gap < 3.2 && target > ahead.v && c.cool <= 0
-        && !cars.some(o => o !== c && inLane(o, -c.lane) && Math.abs((o.s - c.s + L * 1.5) % L - L / 2) < 2.4)) {
+    if (lanes && p.wide > 10 && ahead && gap < FOLLOW + 1.2 && target > ahead.v && c.cool <= 0
+        && !cars.some(o => o !== c && inLane(o, -c.lane) && Math.abs((o.s - c.s + L * 1.5) % L - L / 2) < 2)) {
       c.lane = -c.lane; c.cool = 2.5; ahead = null;   // соседняя полоса свободна: обгон
     }
-    if (ahead && gap < 3.5) target = Math.min(target, ahead.v + (gap - 2) * 2);   // держим дистанцию
+    if (ahead && gap < FOLLOW + 1.5) target = Math.min(target, ahead.v + (gap - FOLLOW) * 2);   // держим дистанцию
     c.v = Math.max(0, c.v + Math.max(-14 * dt, Math.min(4.5 * dt, target - c.v)));
-    if (ahead && gap < 1.4) c.v = Math.min(c.v, ahead.v);
+    if (ahead && gap < FOLLOW * 0.7) c.v = Math.min(c.v, ahead.v * 0.8);   // слишком близко: пропускаем вперёд
     c.s = (c.s + c.v * dt) % L;
-    const side = Math.max(-1.6 * dt, Math.min(1.6 * dt, c.lane * LANE - c.off));
+    const side = Math.max(-1.6 * dt, Math.min(1.6 * dt, (lanes ? c.lane * LANE : 0) - c.off));
     c.off += side;
     const q = trackAt(c.s), yaw = q.th + Math.atan2(side / Math.max(dt, 1e-3), Math.max(c.v, 1));
     c.mesh.position.set(q.x - Math.sin(q.th) * c.off, 0.04, q.z + Math.cos(q.th) * c.off);
@@ -420,6 +458,9 @@ function build(from, to) {
   const W = xs[weeks - 1] + CELL, D = zs[6] + CELL;
   const X = w => xs[w] - W / 2 + CELL / 2, Z = d => zs[d] - D / 2 + CELL / 2;
   for (const c of cells) { c.x = X(c.week); c.z = Z(c.dow); }
+  // трасса через город по дням без коммитов
+  const route = cityRoute(weeks, new Set(cells.filter(c => c.c).map(c => c.week * 7 + c.dow)));
+  const onTrack = new Set(route.filter(([, r]) => r >= 0).map(([w, r]) => w * 7 + r));
 
   roadFloor.position.set(0, 0, 0); roadFloor.scale.set(W + 0.1, 1, D + 0.1);   // асфальт под плитками: из него получаются улицы
 
@@ -456,21 +497,20 @@ function build(from, to) {
   // ── земля: плитки по дням ──
   const tiles = instanced(new THREE.BoxGeometry(CELL - 0.06, 0.05, CELL - 0.06), new THREE.MeshStandardMaterial({ roughness: 0.95 }), cells.length);
   tiles.castShadow = false;
-  const trees = [], lamps = [], dashes = [];
+  const trees = [], lamps = [];
   cells.forEach((cell, i) => {
     let kind, col;
     if (cell.c) { kind = 'built'; col = '#8e9097'; }
+    else if (onTrack.has(cell.week * 7 + cell.dow)) { kind = 'track'; col = '#2b2d33'; }
     else {
-      const r = hash(cell.week * 31 + cell.dow, 5);
-      kind = r < 0.3 ? 'road' : r < 0.7 ? 'lawn' : 'walk';
-      col = kind === 'road' ? '#2b2d33' : kind === 'lawn' ? '#4a8f3f' : '#b7b2a6';
+      kind = hash(cell.week * 31 + cell.dow, 5) < 0.6 ? 'lawn' : 'walk';
+      col = kind === 'lawn' ? '#4a8f3f' : '#b7b2a6';
     }
     cell.kind = kind;
     dummy.position.set(cell.x, 0, cell.z); dummy.scale.set(1, 1, 1); dummy.rotation.set(0, 0, 0); dummy.updateMatrix();
     tiles.setMatrixAt(i, dummy.matrix); tiles.setColorAt(i, new THREE.Color(col));
     if (kind === 'lawn') for (let j = 0; j < 2; j++) trees.push([cell.x + (hash(i, j) - 0.5) * 0.7, cell.z + (hash(i, j + 9) - 0.5) * 0.7, 0.5 + hash(i, j + 3) * 0.5]);
     if (kind === 'walk') lamps.push([cell.x + 0.38, cell.z + 0.38]);
-    if (kind === 'road') for (let j = -2; j <= 2; j++) dashes.push([cell.x + j * 0.22, cell.z, 0.1, 0.04]);
   });
   world.add(tiles);
 
@@ -499,7 +539,7 @@ function build(from, to) {
 
   // ── улицы: главная между вт и ср, поперечные, разметка ──
   const avenueZ = zs[2] + CELL - D / 2 + STREET_Z / 2;
-  const mark = dashes.slice();   // разметка на «дорожных» днях и на улицах
+  const mark = [];   // разметка улиц
   for (let x = -W / 2; x < W / 2; x += 1.1) mark.push([x + 0.3, avenueZ, 0.55, 0.05]);
   for (let w = BLOCK_W; w < weeks; w += BLOCK_W) {
     const sx = xs[w] - W / 2 - STREET_X / 2;
@@ -510,39 +550,45 @@ function build(from, to) {
   mark.forEach(([x, z, sx, sz], i) => { dummy.rotation.set(0, 0, 0); dummy.position.set(x, 0.045, z); dummy.scale.set(sx, 0.005, sz); dummy.updateMatrix(); marks.setMatrixAt(i, dummy.matrix); });
   world.add(marks);
 
-  // ── трасса вокруг квартала + питлейн (юг, +z) ──
+  // ── трасса: главная прямая с питлейном на юге (+z), связки по краям, дальше через город с востока на запад ──
   const TRACK_W = 3.2, M = 2.4;
   const pitDepth = 1.7, laneW = 1.5;
-  const zNorth = -D / 2 - M - TRACK_W / 2;
   const zSouthEdge = D / 2 + M;                         // начало пит-комплекса
   const pitZ = zSouthEdge + pitDepth / 2;               // центр боксов
   const laneZ = zSouthEdge + pitDepth + laneW / 2;      // пит-лейн
   const zSouth = zSouthEdge + pitDepth + laneW + 0.5 + TRACK_W / 2;   // главная прямая
   const xWest = -W / 2 - M - TRACK_W / 2, xEast = W / 2 + M + TRACK_W / 2;
-  const strips = [   // [центр x, центр z, ширина по x, длина по z]
-    [0, zNorth, xEast - xWest + TRACK_W, TRACK_W], [0, zSouth, xEast - xWest + TRACK_W, TRACK_W],
-    [xWest, (zNorth + zSouth) / 2, TRACK_W, zSouth - zNorth], [xEast, (zNorth + zSouth) / 2, TRACK_W, zSouth - zNorth],
-  ];
-  for (const [x, z, sx, sz] of strips) { const r = new THREE.Mesh(box, asphaltMat); r.position.set(x, 0, z); r.scale.set(sx, 0.04, sz); r.receiveShadow = true; world.add(r); }
+  const rowZ = r => r < 0 ? Z(0) - CELL : Z(r);   // ряд -1 - улица за северным краем квартала
+  const pts = [[xWest, zSouth], [xEast, zSouth], [xEast, rowZ(route[0][1])], ...route.map(([w, r]) => [X(w), rowZ(r)]), [xWest, rowZ(route[route.length - 1][1])]];
+  const corners = pts.filter((p, i) => {   // оставляем только углы
+    const a = pts[(i + pts.length - 1) % pts.length], b = pts[(i + 1) % pts.length];
+    return !(a[0] === p[0] && p[0] === b[0]) && !(a[1] === p[1] && p[1] === b[1]);
+  }).map((p, i) => [p[0], p[1], i < 2 ? TRACK_W / 2 : CELL / 2]);
+  const cornerW = i => i < 2 ? TRACK_W : CITY_W;
+  const kerbs = [];
+  corners.forEach((p, i) => {   // асфальт от угла до угла и красно-белые поребрики по кромкам
+    const q = corners[(i + 1) % corners.length], w = i === 0 ? TRACK_W : CITY_W;
+    const r = new THREE.Mesh(box, asphaltMat); r.receiveShadow = true;
+    r.position.set((p[0] + q[0]) / 2, 0, (p[1] + q[1]) / 2); r.scale.set(Math.abs(q[0] - p[0]) + w, 0.04, Math.abs(q[1] - p[1]) + w);
+    world.add(r);
+    const len = Math.hypot(q[0] - p[0], q[1] - p[1]), dx = (q[0] - p[0]) / len, dz = (q[1] - p[1]) / len;
+    const from = cornerW(i) / 2, to = len - cornerW((i + 1) % corners.length) / 2;
+    for (let t = from, k = 0; t + 0.4 <= to; t += 0.4, k++) for (const side of [-1, 1]) {
+      const x = p[0] + dx * (t + 0.2) - dz * side * w / 2, z = p[1] + dz * (t + 0.2) + dx * side * w / 2;
+      kerbs.push([x, z, Math.abs(dx) * 0.4 + Math.abs(dz) * 0.18, Math.abs(dz) * 0.4 + Math.abs(dx) * 0.18, k % 2]);
+    }
+  });
   const pitLane = new THREE.Mesh(box, asphaltMat); pitLane.position.set(0, 0, laneZ); pitLane.scale.set(xEast - xWest - 4, 0.045, laneW); pitLane.receiveShadow = true; world.add(pitLane);
-  // красно-белые поребрики по обеим кромкам трассы
-  const kerbs = [], inner = { x0: xWest + TRACK_W / 2, x1: xEast - TRACK_W / 2, z0: zNorth + TRACK_W / 2, z1: zSouth - TRACK_W / 2 };
-  const outer = { x0: xWest - TRACK_W / 2, x1: xEast + TRACK_W / 2, z0: zNorth - TRACK_W / 2, z1: zSouth + TRACK_W / 2 };
-  for (const r of [inner, outer]) {
-    for (let x = r.x0; x < r.x1; x += 0.8) { kerbs.push([x + 0.4, r.z0, 0.8, 0.18]); kerbs.push([x + 0.4, r.z1, 0.8, 0.18]); }
-    for (let z = r.z0; z < r.z1; z += 0.8) { kerbs.push([r.x0, z + 0.4, 0.18, 0.8]); kerbs.push([r.x1, z + 0.4, 0.18, 0.8]); }
-  }
   const kerbMesh = instanced(box, new THREE.MeshStandardMaterial({ roughness: 0.6 }), kerbs.length);
   kerbMesh.castShadow = false;
-  kerbs.forEach(([x, z, sx, sz], i) => {
+  kerbs.forEach(([x, z, sx, sz, red], i) => {
     dummy.rotation.set(0, 0, 0); dummy.position.set(x, 0.03, z); dummy.scale.set(sx, 0.03, sz); dummy.updateMatrix(); kerbMesh.setMatrixAt(i, dummy.matrix);
-    kerbMesh.setColorAt(i, new THREE.Color(Math.floor(i / 2) % 2 ? '#d3141f' : '#f1f1ee'));
+    kerbMesh.setColorAt(i, new THREE.Color(red ? '#d3141f' : '#f1f1ee'));
   });
   world.add(kerbMesh);
-  // осевая пунктирная линия трассы и финишная
+  // осевая пунктирная линия главной прямой и финишная
   const tl = [];
-  for (let x = xWest; x < xEast; x += 1.3) { tl.push([x, zNorth, 0.7, 0.06]); tl.push([x, zSouth, 0.7, 0.06]); }
-  for (let z = zNorth; z < zSouth; z += 1.3) { tl.push([xWest, z, 0.06, 0.7]); tl.push([xEast, z, 0.06, 0.7]); }
+  for (let x = xWest; x < xEast; x += 1.3) tl.push([x, zSouth, 0.7, 0.06]);
   const tlm = instanced(box, lineMat, tl.length); tlm.castShadow = false;
   tl.forEach(([x, z, sx, sz], i) => { dummy.rotation.set(0, 0, 0); dummy.position.set(x, 0.045, z); dummy.scale.set(sx, 0.004, sz); dummy.updateMatrix(); tlm.setMatrixAt(i, dummy.matrix); });
   world.add(tlm);
@@ -554,7 +600,7 @@ function build(from, to) {
     return new THREE.Mesh(new THREE.PlaneGeometry(0.7, TRACK_W), new THREE.MeshStandardMaterial({ map: t, roughness: 0.8 }));
   })();
   flag.rotation.x = -Math.PI / 2; flag.position.set(-W / 4, 0.047, zSouth); world.add(flag);
-  setTrack(xWest, xEast, zNorth, zSouth, -W / 4);
+  setTrack(corners, -W / 4);
 
   // пит-комплекс: ряд боксов с открытыми воротами, шины, светофорная рамка, стена
   const bays = Math.max(4, Math.min(12, Math.round(W / 6)));
