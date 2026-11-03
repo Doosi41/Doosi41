@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 # Рисует график коммитов за год как изометрический ночной город (для README).
 # Один день = одно здание, чем больше коммитов, тем больше этажей. Цвет крыши - состав резины как на 3D-странице.
-# Дни без коммитов - трасса, лужайка или тротуар.
+# Дни без коммитов - трасса, лужайка или тротуар. Вокруг квартала кольцевая трасса, по ней всё время едут болиды
+# (анимация внутри SVG, GitHub проигрывает её прямо в README).
 # Данные берём из docs/data/contributions.json, результат кладём в profile-3d-contrib/profile-city.svg
 import datetime as dt
 import json
@@ -28,6 +29,21 @@ COMPOUNDS = [
     ('hard', '#f2f2f7', 'Hard'),
 ]
 GROUND = {'road': '#2b2d33', 'lawn': '#2f6b34', 'walk': '#6d6f78'}
+
+# кольцевая трасса вокруг квартала, размеры в клетках
+TRACK_W = 1.6     # ширина
+TRACK_GAP = 1.9   # от центра крайних клеток до оси трассы
+TRACK_R = 1.5     # радиус поворотов по оси
+LANE = 0.4        # две полосы: ось ± LANE, чтобы болиды обгоняли, а не проезжали друг сквозь друга
+# цвет болида, полоса (+1 внешняя, -1 внутренняя), секунд на круг, где он на старте (доля круга)
+CARS = [
+    ('#e8002d', 1, 14.0, 0.0),
+    ('#ff8000', 1, 14.0, 0.34),
+    ('#27f4d2', 1, 14.0, 0.67),
+    ('#3671c6', -1, 14.8, 0.17),
+    ('#c8ccd4', -1, 14.8, 0.5),
+    ('#ff87bc', -1, 14.8, 0.84),
+]
 
 
 def diamond(cx, cy, hx, hy):
@@ -62,7 +78,69 @@ def make_defs():
         defs += building(f, f * 17)
     for name, color, _ in COMPOUNDS:
         defs += f'<polygon id="r-{name}" points="{diamond(0, 0, HALF_X + 1, HALF_Y + 0.5)}" fill="{color}" stroke="#000" stroke-opacity=".35" stroke-width=".6"/>'
+    for i, (color, _, _, _) in enumerate(CARS):
+        defs += car(i, color)
     return defs
+
+
+def car(i, color):
+    """Болид сверху, носом по +x, центр в (0, 0). Размеры в клетках."""
+    wheels = ''.join(f'<rect x="{x}" y="{y}" width="{w}" height=".12" rx=".03" fill="#0d0d0f"/>'
+                     for x, w in ((-.5, .26), (.24, .2)) for y in (-.27, .15))
+    return (f'<g id="car{i}" transform="scale(1.25)">{wheels}'
+            f'<rect x="-.65" y="-.25" width=".13" height=".5" fill="{color}"/>'   # заднее антикрыло
+            f'<polygon points="-.55,-.09 -.1,-.15 .15,-.15 .28,-.06 .58,-.035 .58,.035 .28,.06 .15,.15 -.1,.15 -.55,.09" fill="{color}"/>'
+            f'<rect x=".55" y="-.26" width=".1" height=".52" fill="{color}"/>'   # переднее антикрыло
+            f'<ellipse cx=".05" rx=".09" ry=".05" fill="#111"/>'   # кокпит
+            f'<rect x="-.69" y="-.03" width=".05" height=".06" fill="#ff3b30"/></g>')   # фонарь сзади
+
+
+def ring(u0, v0, u1, v1, r):
+    """Замкнутый контур со скруглёнными углами. Старт в середине ближней прямой, едем по +u."""
+    return (f'M{(u0 + u1) / 2:.2f},{v1:.2f} H{u1 - r:.2f} A{r:.2f},{r:.2f} 0 0 0 {u1:.2f},{v1 - r:.2f} '
+            f'V{v0 + r:.2f} A{r:.2f},{r:.2f} 0 0 0 {u1 - r:.2f},{v0:.2f} '
+            f'H{u0 + r:.2f} A{r:.2f},{r:.2f} 0 0 0 {u0:.2f},{v0 + r:.2f} '
+            f'V{v1 - r:.2f} A{r:.2f},{r:.2f} 0 0 0 {u0 + r:.2f},{v1:.2f} Z')
+
+
+def corners(u0, v0, u1, v1, r):
+    """Только четыре поворота того же контура - для поребриков."""
+    return (f'M{u1 - r:.2f},{v1:.2f} A{r:.2f},{r:.2f} 0 0 0 {u1:.2f},{v1 - r:.2f} '
+            f'M{u1:.2f},{v0 + r:.2f} A{r:.2f},{r:.2f} 0 0 0 {u1 - r:.2f},{v0:.2f} '
+            f'M{u0 + r:.2f},{v0:.2f} A{r:.2f},{r:.2f} 0 0 0 {u0:.2f},{v0 + r:.2f} '
+            f'M{u0:.2f},{v1 - r:.2f} A{r:.2f},{r:.2f} 0 0 0 {u0 + r:.2f},{v1:.2f}')
+
+
+def race(weeks):
+    """Трасса вокруг квартала и болиды на ней, в координатах сетки (u - неделя, v - день недели).
+    Рисуется до города: дальнюю часть трассы закрывают дома, ближнюю ничто не перекрывает."""
+    u0, v0 = -TRACK_GAP, -TRACK_GAP
+    u1, v1 = weeks - 1 + TRACK_GAP, 6 + TRACK_GAP
+    half = TRACK_W / 2
+
+    def box(o):   # контур, раздвинутый на o клеток наружу (o < 0 - внутрь)
+        return u0 - o, v0 - o, u1 + o, v1 + o, TRACK_R + o
+
+    out = f'<path d="{ring(*box(0))}" fill="none" stroke="#2b2d33" stroke-width="{TRACK_W}"/>'
+    for o in (-half + .06, half - .06):   # белые линии по кромкам
+        out += f'<path d="{ring(*box(o))}" fill="none" stroke="#fff" stroke-opacity=".5" stroke-width=".05"/>'
+    for o in (-half + .09, half - .09):   # красно-белые поребрики в поворотах
+        out += (f'<path d="{corners(*box(o))}" fill="none" stroke="#f2f2f7" stroke-width=".18"/>'
+                f'<path d="{corners(*box(o))}" fill="none" stroke="#ff3b30" stroke-width=".18" stroke-dasharray=".25 .25"/>')
+    um, rows = (u0 + u1) / 2, 6   # клетчатая линия старт-финиш
+    for row in range(rows):
+        for col in range(2):
+            fill = '#f2f2f7' if (row + col) % 2 else '#0d0d0f'
+            out += f'<rect x="{um - .2 + col * .2:.2f}" y="{v1 - half + row * TRACK_W / rows:.3f}" width=".2" height="{TRACK_W / rows:.3f}" fill="{fill}"/>'
+
+    shadows, bodies = '', ''
+    for i, (_, lane, lap, start) in enumerate(CARS):
+        motion = (f'<animateMotion path="{ring(*box(lane * LANE))}" dur="{lap}s" begin="-{lap * start:.2f}s" '
+                  f'repeatCount="indefinite" rotate="auto"/>')
+        shadows += f'<ellipse rx=".9" ry=".38" fill="#000" opacity=".45">{motion}</ellipse>'
+        bodies += f'<use href="#car{i}">{motion}</use>'
+    # корпус чуть приподнят над тенью: сдвиг (-l, -l) в сетке - это ровно вверх на экране
+    return out + shadows + f'<g transform="translate(-.12 -.12)">{bodies}</g>'
 
 
 def main():
@@ -85,7 +163,7 @@ def main():
 
     weeks = cells[-1][1] + 1
     x0 = W / 2 - (-6 * STEP_X + (weeks - 1) * STEP_X) / 2
-    y0 = 210 + MAX_FLOORS * FLOOR_H
+    y0 = 190 + MAX_FLOORS * FLOOR_H   # чуть выше, чтобы ближняя часть трассы влезла снизу
 
     # рисуем от дальних клеток к ближним, чтобы высокие дома не перекрывали ближние неправильно
     picture = ''
@@ -114,7 +192,7 @@ def main():
         legend += f'<rect x="{x - 9}" y="68" width="18" height="12" fill="{color}"/>'
         legend += f'<text x="{x + 18}" y="79" font-size="14" fill="#86868b">{name}</text>'
 
-    svg = f'''<svg xmlns="http://www.w3.org/2000/svg" width="{W}" height="{H}" viewBox="0 0 {W} {H}" role="img" aria-label="{total} contributions in the last year as a night city: one building per day, more commits means more floors">
+    svg = f'''<svg xmlns="http://www.w3.org/2000/svg" width="{W}" height="{H}" viewBox="0 0 {W} {H}" role="img" aria-label="{total} contributions in the last year as a night city: one building per day, more commits means more floors. Race cars lap the circuit around it">
 <defs>{make_defs()}</defs>
 <g font-family="-apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Segoe UI', Roboto, Helvetica, Arial, sans-serif">
 <rect width="{W}" height="{H}" fill="#070a16"/>
@@ -122,6 +200,7 @@ def main():
 <ellipse cx="{W / 2}" cy="{y0 + 150}" rx="640" ry="270" fill="url(#glow)"/>
 <text x="56" y="84" font-size="56" font-weight="700" letter-spacing="-2" fill="#f5f5f7">{total}</text>
 <text x="56" y="116" font-size="18" font-weight="500" fill="#86868b">contributions · {first:%b %-d, %Y} – {last:%b %-d, %Y}</text>
+<g transform="matrix({STEP_X} {STEP_Y} {-STEP_X} {STEP_Y} {x0:.1f} {y0:.1f})">{race(weeks)}</g>
 {picture}
 {legend}
 <text x="{W - 56}" y="116" font-size="14" text-anchor="end" fill="#86868b">more commits = more floors</text>

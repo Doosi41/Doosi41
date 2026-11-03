@@ -29,7 +29,7 @@
 
 <img src="assets/titles/activity.svg" alt="Activity" width="100%">
 
-<a href="https://Doosi41.github.io/Doosi41/"><img src="profile-3d-contrib/profile-city.svg" alt="My commits as a night city — one building per day, more commits means more floors. Open the interactive 3D version" width="100%"></a>
+<a href="https://Doosi41.github.io/Doosi41/"><img src="profile-3d-contrib/profile-city.svg" alt="My commits as a night city — one building per day, more commits means more floors; race cars lap the circuit around it. Open the interactive 3D version" width="100%"></a>
 
 <p align="center"><a href="https://Doosi41.github.io/Doosi41/"><b>Open the 3D view ›</b></a><br><sub>Turn it, zoom in and choose any dates</sub></p>
 

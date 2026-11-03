@@ -29,7 +29,7 @@
 
 <img src="assets/ru/titles/activity.svg" alt="Активность" width="100%">
 
-<a href="https://Doosi41.github.io/Doosi41/"><img src="profile-3d-contrib/profile-city.svg" alt="Мои коммиты ночным городом: один день — одно здание, чем больше коммитов, тем больше этажей. Открыть интерактивную 3D-версию" width="100%"></a>
+<a href="https://Doosi41.github.io/Doosi41/"><img src="profile-3d-contrib/profile-city.svg" alt="Мои коммиты ночным городом: один день — одно здание, чем больше коммитов, тем больше этажей, вокруг по трассе ездят болиды. Открыть интерактивную 3D-версию" width="100%"></a>
 
 <p align="center"><a href="https://Doosi41.github.io/Doosi41/"><b>Открыть 3D-вид ›</b></a><br><sub>Крути, приближай и выбирай любые даты</sub></p>
 
