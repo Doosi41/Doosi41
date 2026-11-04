@@ -136,7 +136,7 @@ import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 
 /* Один день — одно здание. Чем больше коммитов, тем больше этажей. Крыша красится по «составу шин» (wet → hard).
    Дни без коммитов — лужайка или тротуар, а по части из них петляет трасса. Её главная прямая с питлейном — на юге. */
-const CELL = 1.2, DAY = 86400000, FLOOR_H = 0.34, MAX_FLOORS = 14, MERGE_MIN = 6;
+const CELL = 2.0, DAY = 86400000, FLOOR_H = 0.34, MAX_FLOORS = 14, MERGE_MIN = 6;   // клетка крупная: трасса по городу широкая, можно обгонять
 const STREET_Z = 1.5, STREET_X = 1.3, BLOCK_W = 4;      // ширина главной улицы и поперечных
 const COMPOUNDS = ['#1a8fff', '#25e060', '#ff2d2d', '#ffe01a', '#ffffff'].map(c => new THREE.Color(c));   // wet, inter, soft, medium, hard
 const $ = id => document.getElementById(id);
@@ -160,7 +160,7 @@ scene.fog = new THREE.Fog('#070a16', 120, 520);
 const camera = new THREE.PerspectiveCamera(40, innerWidth / innerHeight, 0.1, 2000);
 const controls = new OrbitControls(camera, renderer.domElement);
 Object.assign(controls, { enableDamping: true, dampingFactor: 0.08, autoRotate: true, autoRotateSpeed: 0.5,
-  maxPolarAngle: Math.PI / 2.08, minDistance: 5, maxDistance: 320 });
+  maxPolarAngle: Math.PI / 2.08, minDistance: 5, maxDistance: 480 });
 
 const sky = new THREE.Mesh(new THREE.SphereGeometry(900, 48, 24), new THREE.ShaderMaterial({
   side: THREE.BackSide, depthWrite: false, fog: false,
@@ -329,7 +329,7 @@ const DRIVERS = [['Norris', 'Piastri'], ['Leclerc', 'Hamilton'], ['Verstappen', 
   ['Gasly', 'Colapinto'], ['Albon', 'Sainz'], ['Lawson', 'Lindblad'], ['Hülkenberg', 'Bortoleto'], ['Ocon', 'Bearman'], ['Pérez', 'Bottas']];
 const LANE = 0.75, TOP_SPEED = 12.5, FOLLOW = 1.85, CAR_W = 0.56, CAR_L = 1.22, CAR_SCALE = 0.9;   // сдвиг для обгона на главной прямой; скорость в клетках в секунду; дистанция; габариты болида
 const PIT_V = 5, PIT_STOP = 2.5, BRAKE = 13;   // пит-лейн: скорость и сколько стоят в боксе; торможение
-const CITY_W = 1.2, TURN_COST = 1, OUT_COST = 6, MIN_RUN = 3;   // ширина трассы в городе; маршрут - как в scripts/city.py
+const CITY_W = 2.0, TURN_COST = 1, OUT_COST = 6, MIN_RUN = 3;   // ширина трассы в городе; маршрут - как в scripts/city.py
 const tyreMat = new THREE.MeshStandardMaterial({ color: '#101012', roughness: 0.85 });
 const carbonMat = new THREE.MeshStandardMaterial({ color: '#1a1b1f', roughness: 0.5, metalness: 0.3 });
 const rainLightMat = new THREE.MeshStandardMaterial({ color: '#400', emissive: '#ff2020', emissiveIntensity: 2 });
@@ -586,7 +586,9 @@ function race(dt) {
   raceT += dt;
   const L = track.len, segs = track.segs, n = segs.length, onTrack = cars.filter(c => !c.pit);
   // кто уже выезжает с пит-лейна, для остальных как будто стоит на трассе у выезда: его пропускают
-  const others = onTrack.concat(cars.filter(c => c.pit && c.pit.go).map(c => ({ s: pitGhostS(c.pit.p), off: PIT_SIDE, v: c.v, vmax: c.vmax, form: c.form, no: c.no, ghost: true })));
+  // и кто только что свернул на пит-лейн - для едущих следом он ещё впереди на въезде
+  const others = onTrack.concat(cars.filter(c => c.pit && c.pit.go).map(c => ({ s: pitGhostS(c.pit.p), off: PIT_SIDE, v: c.v, vmax: c.vmax, form: c.form, no: c.no, ghost: true })),
+    cars.filter(c => c.pit && c.pit.p < 5).map(c => ({ s: (pit.sIn + c.pit.p) % L, off: PIT_SIDE + c.off, v: c.v, vmax: c.vmax, form: c.form, no: c.no, ghost: true })));
   for (const c of cars) {
     if ((c.formT -= dt) <= 0) { c.formT = 4 + Math.random() * 8; c.goal = 0.95 + Math.random() * 0.07; }   // форма гонщика плавает
     c.form += (c.goal - c.form) * Math.min(1, dt * 0.3);
@@ -609,12 +611,15 @@ function race(dt) {
     }
     // атака: быстрее того, кто впереди, и до поворота есть место - выходим из-за спины
     c.cool -= dt;
-    if (!c.attack && !merging && ahead && !ahead.ghost && gap < FOLLOW + 1.6 && c.cool <= 0 && toCorner > 4 && limAhead > 0.25 && vtop > ahead.vmax * ahead.form + 0.1) {
+    // в городе атакуем и на короткой прямой, на позднем торможении; на главной прямой - если до поворота есть место
+    if (!c.attack && !merging && !g.arc && ahead && !ahead.ghost && gap < FOLLOW + 1.6 && c.cool <= 0 && toCorner > (lim < 0.9 ? 1.5 : 3) && limAhead > 0.25 && vtop > ahead.vmax * ahead.form + 0.1) {
       const side = ahead.off > 0.05 ? -1 : ahead.off < -0.05 ? 1 : next.sg;
       const want = side * Math.min(LANE, limAhead - 0.02);
-      if (!onTrack.some(o => o !== c && o !== ahead && Math.abs(wrap(o.s - c.s)) < 2.2 && Math.abs(o.off - want) < CAR_W + 0.04)) c.attack = { side, rival: ahead, t: 4 };
+      if (!onTrack.some(o => o !== c && o !== ahead && Math.abs(wrap(o.s - c.s)) < 2.2 && Math.abs(o.off - want) < CAR_W + 0.04)) c.attack = { side, rival: ahead, t: 5 };
     }
-    if (c.attack && (g.arc || merging || c.attack.rival.pit || (c.attack.t -= dt) <= 0 || wrap(c.s - c.attack.rival.s) > CAR_L + 0.3)) { c.attack = null; c.cool = 1.5; }
+    // атака идёт и через поворот колесо в колесо; кончается, когда обогнали, вышло время или трасса сужается
+    if (c.attack && (merging || c.attack.rival.pit || (c.attack.t -= dt) <= 0 || wrap(c.s - c.attack.rival.s) > CAR_L + 0.3)) { c.attack = null; c.cool = 1.5; }
+    if (c.attack) target *= 1.04;   // атакующий давит сильнее
     if (ahead && gap < FOLLOW + 1.5) target = Math.min(target, ahead.v + (gap - FOLLOW) * 2);   // держим дистанцию
     c.v = Math.max(0, c.v + Math.max(-18 * dt, Math.min(6.5 * dt, target - c.v)));
     if (ahead && gap < FOLLOW * 0.7) c.v = Math.min(c.v, ahead.v * 0.8);   // слишком близко: пропускаем вперёд
@@ -726,7 +731,7 @@ function build(from, to) {
     const type = floors <= 1 ? 'hut' : floors <= 3 ? 'house' : floors <= 8 ? 'mid' : 'tower';
     const seed = hash(cell.week, cell.dow);
     const pal = WALL_PALETTES[type];
-    const w = merge ? 0.9 : { hut: 0.6, house: 0.76, mid: 0.86, tower: 0.9 }[type];
+    const w = merge ? 1.12 : { hut: 0.75, house: 0.95, mid: 1.07, tower: 1.12 }[type];
     const d = merge ? CELL * 2 - 0.3 : w;
     buildings.push({
       ids, c, floors, type, seed, merged: merge, w, d, H: floors * FLOOR_H + 0.08,
@@ -756,8 +761,8 @@ function build(from, to) {
     cell.kind = kind;
     dummy.position.set(cell.x, 0, cell.z); dummy.scale.set(1, 1, 1); dummy.rotation.set(0, 0, 0); dummy.updateMatrix();
     tiles.setMatrixAt(i, dummy.matrix); tiles.setColorAt(i, new THREE.Color(col));
-    if (kind === 'lawn') for (let j = 0; j < 2; j++) trees.push([cell.x + (hash(i, j) - 0.5) * 0.7, cell.z + (hash(i, j + 9) - 0.5) * 0.7, 0.5 + hash(i, j + 3) * 0.5]);
-    if (kind === 'walk') lamps.push([cell.x + 0.38, cell.z + 0.38]);
+    if (kind === 'lawn') for (let j = 0; j < 3; j++) trees.push([cell.x + (hash(i, j) - 0.5) * CELL * 0.6, cell.z + (hash(i, j + 9) - 0.5) * CELL * 0.6, 0.5 + hash(i, j + 3) * 0.5]);
+    if (kind === 'walk') lamps.push([cell.x + CELL * 0.32, cell.z + CELL * 0.32]);
   });
   world.add(tiles);
 
@@ -976,6 +981,7 @@ function build(from, to) {
   sun.shadow.camera.near = 1; sun.shadow.camera.far = 400; sun.shadow.camera.updateProjectionMatrix();
   grass.visible = true;
   const dist = Math.max(18, Math.max(W, D) * 0.95);
+  scene.fog.near = Math.max(120, dist * 0.8); scene.fog.far = Math.max(520, dist * 3);   // город большой: туман дальше
   controls.target.set(0, 1, 2);
   camera.position.set(dist * 0.62, dist * 0.55, dist * 0.78);
   scene.userData.layout = { W, D, zSouth, R0 };
