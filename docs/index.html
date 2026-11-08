@@ -330,6 +330,7 @@ const DRIVERS = [['Norris', 'Piastri'], ['Leclerc', 'Hamilton'], ['Verstappen', 
 const LANE = 0.75, TOP_SPEED = 12.5, FOLLOW = 1.85, CAR_W = 0.56, CAR_L = 1.22, CAR_SCALE = 0.9;   // сдвиг для обгона на главной прямой; скорость в клетках в секунду; дистанция; габариты болида
 const PIT_V = 5, PIT_STOP = 2.5, BRAKE = 13;   // пит-лейн: скорость и сколько стоят в боксе; торможение
 const CITY_W = 2.0, TURN_COST = 1, OUT_COST = 6, MIN_RUN = 3;   // ширина трассы в городе; маршрут - как в scripts/city.py
+const HAIRPIN_ROW = 4, HAIRPIN_X = 4, HAIRPIN_Z = 3.2;   // шпилька Фэрмонт на выезде из города, правило то же, что в README
 const tyreMat = new THREE.MeshStandardMaterial({ color: '#101012', roughness: 0.85 });
 const carbonMat = new THREE.MeshStandardMaterial({ color: '#1a1b1f', roughness: 0.5, metalness: 0.3 });
 const rainLightMat = new THREE.MeshStandardMaterial({ color: '#400', emissive: '#ff2020', emissiveIntensity: 2 });
@@ -666,6 +667,69 @@ function placeTower() {   // под шапкой и не выше нижнего
   else $('order').style.maxHeight = '';
 }
 
+// ── Монако: тоннель с отелем над ним, гавань Порт-Эркюль с яхтами, подписи поворотов ──
+const barrierMat = new THREE.MeshStandardMaterial({ color: '#e3e6ea', roughness: 0.6 });
+const tunnelMat = new THREE.MeshStandardMaterial({ color: '#8f96a1', roughness: 0.8 });
+const tunnelLight = new THREE.MeshStandardMaterial({ color: '#332a18', emissive: '#ffd27a', emissiveIntensity: 1.6 });
+const seaMat = new THREE.MeshStandardMaterial({ color: '#1f6aa0', roughness: 0.15, metalness: 0.35 });
+const yachtWhite = new THREE.MeshStandardMaterial({ color: '#f4f6f9', roughness: 0.35 });
+const yachtGlass = new THREE.MeshStandardMaterial({ color: '#2b3d55', roughness: 0.2, metalness: 0.4 });
+const yachtLight = new THREE.MeshStandardMaterial({ color: '#331', emissive: '#ffd27a', emissiveIntensity: 2 });
+const hullGeo = new THREE.CylinderGeometry(0.7071 * 0.35, 0.7071, 1, 4, 1).rotateY(Math.PI / 4).rotateZ(-Math.PI / 2).translate(0, 0.5, 0);   // нос уже кормы
+
+function monaco(xWest, xEast, zSouth, zTop, hairpinAt, mainW) {
+  // тоннель над спуском западной связки, от шпильки к главной прямой; сверху отель, как Fairmont в Монако
+  const z1 = zTop + 1.6, z2 = zSouth - 7;
+  if (z2 - z1 >= 3) {
+    const h = limAt(sOnTrack(xWest, z2)) + CAR_W / 2 + 0.02 + 0.45, len = z2 - z1, zc = (z1 + z2) / 2;
+    const g = new THREE.Group();
+    const part = (mat, x, y, z, sx, sy, sz) => { const m = new THREE.Mesh(box, mat); m.position.set(x, y, z); m.scale.set(sx, sy, sz); m.castShadow = m.receiveShadow = true; g.add(m); return m; };
+    for (const sx of [-1, 1]) part(tunnelMat, xWest + sx * (h + 0.15), 0, zc, 0.3, 1.35, len);   // стены
+    part(tunnelMat, xWest, 1.35, zc, 2 * h + 0.6, 0.25, len);                                       // крыша
+    for (let z = z1 + 0.8; z < z2 - 0.4; z += 1.6) part(tunnelLight, xWest, 1.28, z, 0.5, 0.05, 0.6).castShadow = false;   // светильники
+    const hotel = instanced(box, wallMat, 1, { windows: true });
+    dummy.rotation.set(0, 0, 0); dummy.position.set(xWest, 1.6, zc); dummy.scale.set(2 * h + 0.4, 3.4, len - 0.6); dummy.updateMatrix(); hotel.setMatrixAt(0, dummy.matrix);
+    hotel.setColorAt(0, new THREE.Color('#e9dccb'));
+    const a = hotel.geometry.attributes; a.aFloors.setX(0, 10); a.aCols.setXY(0, Math.round((2 * h + 0.4) / 0.35), Math.round(len / 0.35)); a.aSeed.setX(0, 0.37);
+    g.add(hotel);
+    world.add(g);
+    const tl = label('TUNNEL', 0.6); tl.position.set(xWest, 5.8, zc); world.add(tl);
+  }
+  if (hairpinAt) { const hl = label('FAIRMONT', 0.6); hl.position.set(hairpinAt[0] - 1, 2.2, hairpinAt[1] + 1.6); world.add(hl); }
+  const sd = label('STE DÉVOTE', 0.6); sd.position.set(xEast + 2.5, 2.2, zSouth + 2); world.add(sd);
+
+  // гавань: набережная, вода и яхты вдоль главной прямой
+  const z0 = zSouth + mainW / 2 + 0.9, x0 = xWest - 10, x1 = xEast + 10;
+  const quay = new THREE.Mesh(box, new THREE.MeshStandardMaterial({ color: '#c9ccd1', roughness: 0.9 }));
+  quay.position.set(0, -0.02, z0 - 0.45); quay.scale.set(x1 - x0, 0.06, 0.9); quay.receiveShadow = true; world.add(quay);
+  const sea = new THREE.Mesh(new THREE.PlaneGeometry(x1 - x0, 22), seaMat);
+  sea.rotation.x = -Math.PI / 2; sea.position.set(0, -0.03, z0 + 11); sea.receiveShadow = true; world.add(sea);
+  const n = Math.max(6, Math.round((x1 - x0) / 5)), yachts = [];
+  for (let i = 0; i < n; i++) yachts.push({ x: x0 + 4 + (i + hash(i, 21) * 0.6) * (x1 - x0 - 8) / n, z: z0 + 2.2 + (i % 3) * 2.4 + hash(i, 22),
+    s: 0.9 + hash(i, 23) * 0.9, ph: hash(i, 24) * 6.28 });
+  const parts = [instanced(hullGeo, yachtWhite, n), instanced(box, yachtWhite, n), instanced(box, yachtGlass, n), instanced(cyl, barrierMat, n), instanced(sphere, yachtLight, n)];
+  parts[4].castShadow = false;
+  world.add(...parts);
+  world.userData.yachts = { list: yachts, parts };
+  const ph = label('PORT HERCULE', 0.8); ph.position.set(0, 3, z0 + 9); world.add(ph);
+}
+
+function bobYachts(t) {   // яхты покачиваются на волнах
+  const Y = world.userData.yachts;
+  if (!Y) return;
+  const [hull, deck, glass, mast, lamp] = Y.parts;
+  Y.list.forEach((y, i) => {
+    const up = 0.04 * Math.sin(t * 1.3 + y.ph), roll = 0.04 * Math.sin(t * 0.9 + y.ph * 2), s = y.s;
+    const put = (m, x, yy, z, sx, sy, sz) => { dummy.position.set(y.x + x * s, up + yy * s, y.z + z * s); dummy.rotation.set(roll, 0, 0); dummy.scale.set(sx * s, sy * s, sz * s); dummy.updateMatrix(); m.setMatrixAt(i, dummy.matrix); };
+    put(hull, 0, -0.05, 0, 2.2, 0.32, 0.8);
+    put(deck, -0.25, 0.27, 0, 1.0, 0.22, 0.6);
+    put(glass, 0.05, 0.3, 0, 0.42, 0.14, 0.62);
+    put(mast, -0.1, 0.49, 0, 0.03, 1.6, 0.03);
+    put(lamp, -0.1, 2.12, 0, 0.09, 0.09, 0.09);
+  });
+  for (const m of Y.parts) m.instanceMatrix.needsUpdate = true;
+}
+
 // ── контейнеры динамической сцены ──
 const world = new THREE.Group();   // всё, что пересобирается при смене периода
 scene.add(world);
@@ -811,14 +875,17 @@ function build(from, to) {
   const zSouth = zSouthEdge + pitDepth + laneW + 0.5 + TRACK_W / 2;   // главная прямая
   const xWest = -W / 2 - M - TRACK_W / 2, xEast = W / 2 + M + TRACK_W / 2;
   const rowZ = r => r < 0 ? Z(0) - CELL : Z(r);   // ряд -1 - улица за северным краем квартала
-  const pts = [[xWest, zSouth], [xEast, zSouth], [xEast, rowZ(route[0][1])], ...route.map(([w, r]) => [X(w), rowZ(r)]), [xWest, rowZ(route[route.length - 1][1])]];
+  const rw = route[route.length - 1][1], zw = rowZ(rw), hairpin = rw <= HAIRPIN_ROW;
+  const tail = hairpin ? [[xWest - HAIRPIN_X, zw], [xWest - HAIRPIN_X, zw + HAIRPIN_Z], [xWest, zw + HAIRPIN_Z]] : [[xWest, zw]];   // шпилька - разворот на 180°
+  const pts = [[xWest, zSouth], [xEast, zSouth], [xEast, rowZ(route[0][1])], ...route.map(([w, r]) => [X(w), rowZ(r)]), ...tail];
   const corners = pts.filter((p, i) => {   // оставляем только углы
     const a = pts[(i + pts.length - 1) % pts.length], b = pts[(i + 1) % pts.length];
     return !(a[0] === p[0] && p[0] === b[0]) && !(a[1] === p[1] && p[1] === b[1]);
   }).map((p, i) => [p[0], p[1], i < 2 ? 2.5 : CELL / 2, i < 2 ? TRACK_W : CITY_W]);   // [x, z, радиус, ширина]
   setTrack(corners, -W / 4);
   // асфальт - лента вдоль оси трассы с плавными поворотами, как на картинке в README; поребрики по обеим кромкам
-  const verts = [], idx = [], kerbs = [], prev = [null, null], walked = [0, 0];
+  const verts = [], idx = [], kerbs = [], barriers = [], prev = [null, null], prevB = [null, null], walked = [0, 0];
+  const sIn = sOnTrack(xWest, laneZ - 1), sOut = sOnTrack(xEast, laneZ - 1);   // въезд и выезд пит-лейна: там в отбойнике проём
   const steps = Math.ceil(track.len / 0.15);
   for (let k = 0; k <= steps; k++) {
     const sk = (k / steps) * track.len, q = pathAt(track, sk % track.len), h = limAt(sk % track.len) + CAR_W / 2 + 0.02;
@@ -831,6 +898,14 @@ function build(from, to) {
         walked[side] += len;
       }
       prev[side] = [x, z];
+      // отбойник чуть дальше поребрика; нет его вдоль стены пит-лейна и в проёмах въезда и выезда
+      const bx = x + (side ? -nx : nx) * 0.32, bz = z + (side ? -nz : nz) * 0.32, s0 = sk % track.len;
+      const gap = side === 1 && (q.i === 0 || Math.abs(wrap(s0 - sIn)) < 3 || Math.abs(wrap(s0 - sOut)) < 3);
+      if (prevB[side] && !gap && k % 2 === 0) {
+        const [px, pz] = prevB[side];
+        barriers.push([(bx + px) / 2, (bz + pz) / 2, Math.hypot(bx - px, bz - pz), Math.atan2(bz - pz, bx - px)]);
+      }
+      if (k % 2 === 0 || gap) prevB[side] = gap ? null : [bx, bz];
     });
     if (k) idx.push(2 * k - 2, 2 * k, 2 * k - 1, 2 * k - 1, 2 * k, 2 * k + 1);   // лицом вверх
   }
@@ -848,6 +923,12 @@ function build(from, to) {
     kerbMesh.setColorAt(i, new THREE.Color(red ? '#d3141f' : '#f1f1ee'));
   });
   world.add(kerbMesh);
+  const barrierMesh = instanced(box, barrierMat, barriers.length);
+  barriers.forEach(([x, z, len, ang], i) => {
+    dummy.rotation.set(0, -ang, 0); dummy.position.set(x, 0.02, z); dummy.scale.set(len + 0.02, 0.24, 0.07); dummy.updateMatrix(); barrierMesh.setMatrixAt(i, dummy.matrix);
+  });
+  world.add(barrierMesh);
+  monaco(xWest, xEast, zSouth, hairpin ? zw + HAIRPIN_Z : zw, hairpin ? [xWest - HAIRPIN_X, zw] : null, TRACK_W);
   // осевая пунктирная линия главной прямой и финишная
   const tl = [];
   for (let x = xWest + 3; x < xEast - 3; x += 1.3) tl.push([x, zSouth, 0.7, 0.06]);   // только на прямой, не в поворотах
@@ -1014,6 +1095,7 @@ function applyNight(n) {
   if (door) door.emissiveIntensity = n * 0.9;
   for (const c of cars) for (const m of c.mesh.userData.paint) m.emissiveIntensity = 0.12 + n * 0.5;   // днём чуть светится, чтобы цвет был сочнее
   trackMat.emissiveIntensity = n;
+  barrierMat.emissive.set('#ffffff'); barrierMat.emissiveIntensity = n * 0.12;
   lineMat.emissive.set('#ffffff'); lineMat.emissiveIntensity = n * 0.25;
   rainLightMat.emissiveIntensity = 2 + n * 2;
 }
@@ -1150,6 +1232,7 @@ renderer.setAnimationLoop(now => {
   grow(now);
   race(dt);
   updateTower(dt);
+  bobYachts(now / 1000);
   heli.userData.rotor.rotation.y += dt * 24; heli.userData.tail.rotation.x += dt * 30;
   sky.position.copy(camera.position);
   controls.update();

@@ -39,6 +39,9 @@ SPEED = 14           # клеток в секунду на прямой, в по
 # маршрут: каждый пустой день на пути - плюс, поворот - минус TURN_COST, клетка улицы за дальним краем (ряд -1) - минус OUT_COST;
 # между двумя поворотами поперёк недель не меньше MIN_RUN клеток, чтобы соседние куски трассы не слипались
 TURN_COST, OUT_COST, MIN_RUN = 1, 6, 3
+# фишки Монако: шпилька Фэрмонт на выезде из города (если ряд выезда не дальше HAIRPIN_ROW), тоннель на спуске к главной
+# прямой, гавань с яхтами вдоль неё. То же самое на 3D-странице (docs/index.html)
+HAIRPIN_ROW, HAIRPIN_U, HAIRPIN_V = 4, 2.0, 1.2
 # 11 команд по 2 болида, цвета те же, что на 3D-странице: [корпус, акцент]
 TEAMS = [
     ('#ff8a00', '#1b1b1f'), ('#ff1a2d', '#ffffff'), ('#2a46c8', '#ff2a2a'), ('#dfe3ea', '#00f0d0'),
@@ -151,9 +154,10 @@ def city_route(weeks, busy):
 
 def circuit(weeks, route):
     """Углы замкнутой трассы: главная прямая с запада на восток вдоль ближнего края, связка к городу,
-    город с востока на запад, связка обратно к главной прямой."""
-    vs, ue, uw = 6 + OUTSIDE, weeks - 1 + OUTSIDE, -OUTSIDE
-    pts = [(uw, vs), (ue, vs), (ue, route[0][1])] + route + [(uw, route[-1][1])]
+    город с востока на запад, шпилька, связка обратно к главной прямой."""
+    vs, ue, uw, rw = 6 + OUTSIDE, weeks - 1 + OUTSIDE, -OUTSIDE, route[-1][1]
+    tail = [(uw - HAIRPIN_U, rw), (uw - HAIRPIN_U, rw + HAIRPIN_V), (uw, rw + HAIRPIN_V)] if rw <= HAIRPIN_ROW else [(uw, rw)]
+    pts = [(uw, vs), (ue, vs), (ue, route[0][1])] + route + tail
     n = len(pts)
     return [p for i, p in enumerate(pts)
             if not (pts[i - 1][0] == p[0] == pts[(i + 1) % n][0] or pts[i - 1][1] == p[1] == pts[(i + 1) % n][1])]
@@ -186,6 +190,7 @@ def race(corners):
     segs.append((math.dist(cur, start), SPEED))
 
     out = f'<defs><path id="lap" d="{d} Z"/></defs>'
+    out += f'<use href="#lap" fill="none" stroke="#8d96a3" stroke-width="{TRACK_W + .36}"/>'   # отбойники
     out += (f'<use href="#lap" fill="none" stroke="#f2f2f7" stroke-width="{TRACK_W + .2}"/>'   # красно-белые поребрики по всей кромке
             f'<use href="#lap" fill="none" stroke="#ff3b30" stroke-width="{TRACK_W + .2}" stroke-dasharray=".16 .16"/>')
     out += f'<use href="#lap" fill="none" stroke="#2b2d33" stroke-width="{TRACK_W}"/>'
@@ -214,6 +219,56 @@ def race(corners):
     return out + shadows + f'<g transform="translate(-.08 -.08)">{bodies}</g>'
 
 
+def iso(x0, y0, u, v):
+    return x0 + (u - v) * STEP_X, y0 + (u + v) * STEP_Y
+
+
+def tunnel(x0, y0, corners):
+    """Тоннель над западной связкой (спуск к главной прямой): болиды в нём скрываются.
+    Рисуется после болидов, но до домов: ближние дома его закрывают, дальние до него не достают."""
+    (ua, va), (_, vb) = corners[-1], corners[0]   # связка: от последнего угла вниз до угла 0
+    va, vb = va + 0.9, vb - 2.3
+    if vb - va < 1.2:
+        return ''
+    u0, u1, h = ua - 0.75, ua + 0.75, 9
+    p = lambda u, v, up=0: '{:.1f},{:.1f}'.format(*(lambda x, y: (x, y - up))(*iso(x0, y0, u, v)))
+    out = f'<polygon points="{p(u1, va)} {p(u1, vb)} {p(u1, vb, h)} {p(u1, va, h)}" fill="#3a4250"/>'   # стена к городу
+    out += f'<polygon points="{p(u0, va, h)} {p(u1, va, h)} {p(u1, vb, h)} {p(u0, vb, h)}" fill="#566072"/>'   # крыша
+    out += f'<polygon points="{p(u0, vb)} {p(u1, vb)} {p(u1, vb, h)} {p(u0, vb, h)}" fill="#4a5363"/>'   # портал
+    out += (f'<polygon points="{p(u0 + .22, vb)} {p(u1 - .22, vb)} {p(u1 - .22, vb, h - 3)} {p(u0 + .22, vb, h - 3)}" fill="#07090f"/>'
+            f'<polygon points="{p(u0 + .3, vb)} {p(u1 - .3, vb)} {p(u1 - .3, vb, 2)} {p(u0 + .3, vb, 2)}" fill="#ffcf7a" opacity=".35"/>')   # свет внутри
+    return out
+
+
+def harbour(x0, y0, weeks):
+    """Гавань Порт-Эркюль вдоль главной прямой: вода, набережная и яхты, которые покачиваются на волнах."""
+    vs, uw, ue = 6 + OUTSIDE, -OUTSIDE, weeks - 1 + OUTSIDE
+    q = lambda u, v: '{:.1f},{:.1f}'.format(*iso(x0, y0, u, v))
+    out = ('<linearGradient id="sea" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#0d2742"/>'
+           '<stop offset="1" stop-color="#06111f"/></linearGradient>')
+    out += f'<polygon points="{q(uw - 4, vs + .95)} {q(ue + 4, vs + .95)} {q(ue + 4, vs + 12)} {q(uw - 4, vs + 12)}" fill="url(#sea)"/>'
+    out += f'<polyline points="{q(uw - 4, vs + .95)} {q(ue + 4, vs + .95)}" stroke="#5a6678" stroke-width="3" fill="none"/>'   # набережная
+    rnd = random.Random(11)
+    for _ in range(40):   # блики на воде
+        x, y = iso(x0, y0, uw + rnd.random() * (ue - uw), vs + 1.6 + rnd.random() * 6)
+        if y < H - 4:
+            out += f'<line x1="{x:.0f}" y1="{y:.0f}" x2="{x + 6 + rnd.random() * 8:.0f}" y2="{y + 3:.0f}" stroke="#9fc3ff" stroke-opacity=".14" stroke-width="1"/>'
+    for k in range(16):   # яхты: корпус вдоль причала, мачта, огонь на мачте и его отражение
+        x, y = iso(x0, y0, uw + 2 + k * (ue - uw - 14) / 15 + rnd.random() * 1.5, vs + 1.9 + (k % 3) * 1.15 + rnd.random() * .4)
+        if y > H - 12:
+            continue
+        mast = 12 + rnd.random() * 10
+        out += (f'<g transform="translate({x:.1f} {y:.1f})"><g>'
+                f'<line x1="0" y1="2" x2="0" y2="{6 + rnd.random() * 4:.1f}" stroke="#ffcf7a" stroke-opacity=".3" stroke-width="1.4"/>'
+                f'<g transform="rotate(26.6) scale(1 .62)"><polygon points="-10,0 6,-4.5 11,0 6,4.5" fill="#e8ecf2"/>'
+                f'<rect x="-5" y="-2.4" width="7" height="4.8" rx="1" fill="#b7c3d3"/></g>'
+                f'<line x1="-1" y1="-1" x2="-1" y2="{-mast:.1f}" stroke="#cfd6e0" stroke-width=".9"/>'
+                f'<circle cx="-1" cy="{-mast:.1f}" r="1.3" fill="#ffd27a"/>'
+                f'<animateTransform attributeName="transform" type="translate" values="0 0;0 1.3;0 0" dur="{3 + rnd.random() * 2:.1f}s" '
+                f'begin="-{rnd.random() * 4:.1f}s" repeatCount="indefinite"/></g></g>')
+    return out
+
+
 def main():
     days = json.load(open(SRC, encoding='utf-8'))['days'][-365:]
     counts = {}
@@ -238,6 +293,7 @@ def main():
 
     route = city_route(weeks, {(week, weekday) for _, week, weekday, count, _ in cells if count})
     on_track = set(route)
+    corners = circuit(weeks, route)
 
     # сначала вся земля, потом трасса с болидами, потом дома от дальних к ближним
     ground, houses = '', ''
@@ -266,7 +322,7 @@ def main():
         legend += f'<rect x="{x - 9}" y="68" width="18" height="12" fill="{color}"/>'
         legend += f'<text x="{x + 18}" y="79" font-size="14" fill="#86868b">{name}</text>'
 
-    svg = f'''<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="{W}" height="{H}" viewBox="0 0 {W} {H}" role="img" aria-label="{total} contributions in the last year as a night city: one building per day, more commits means more floors. Race cars lap a circuit that winds through the days without commits">
+    svg = f'''<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="{W}" height="{H}" viewBox="0 0 {W} {H}" role="img" aria-label="{total} contributions in the last year as a night city: one building per day, more commits means more floors. Race cars lap a Monaco-style circuit that winds through the days without commits, with a hairpin, a tunnel and a harbour">
 <defs>{make_defs()}</defs>
 <g font-family="-apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Segoe UI', Roboto, Helvetica, Arial, sans-serif">
 <rect width="{W}" height="{H}" fill="#070a16"/>
@@ -274,8 +330,10 @@ def main():
 <ellipse cx="{W / 2}" cy="{y0 + 150}" rx="640" ry="270" fill="url(#glow)"/>
 <text x="56" y="84" font-size="56" font-weight="700" letter-spacing="-2" fill="#f5f5f7">{total}</text>
 <text x="56" y="116" font-size="18" font-weight="500" fill="#86868b">contributions · {first:%b %-d, %Y} – {last:%b %-d, %Y}</text>
+{harbour(x0, y0, weeks)}
 {ground}
-<g transform="matrix({STEP_X} {STEP_Y} {-STEP_X} {STEP_Y} {x0:.1f} {y0:.1f})">{race(circuit(weeks, route))}</g>
+<g transform="matrix({STEP_X} {STEP_Y} {-STEP_X} {STEP_Y} {x0:.1f} {y0:.1f})">{race(corners)}</g>
+{tunnel(x0, y0, corners)}
 {houses}
 {legend}
 <text x="{W - 56}" y="116" font-size="14" text-anchor="end" fill="#86868b">more commits = more floors</text>
