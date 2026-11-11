@@ -15,6 +15,7 @@
 
 <a href="https://github.com/Doosi41/rentui.kg"><img src="assets/projects/rentui-kg.svg" alt="rentui.kg — Homes for rent in Kyrgyzstan — directly from the owners" width="100%"></a>
 <a href="https://github.com/Doosi41/gb-ansar"><img src="assets/projects/gb-ansar.svg" alt="gb-ansar — AI product catalog for Ansar Home Warehouse" width="100%"></a>
+<a href="https://github.com/Doosi41/vibe_studio"><img src="assets/projects/vibe-studio.svg" alt="Vibe Studio — Free website concept in 1–2 days. Prices follow your country" width="100%"></a>
 <a href="https://github.com/Doosi41/olymp"><img src="assets/projects/olymp.svg" alt="olymp — Competitive programming solutions. The README updates itself" width="100%"></a>
 
 <br>
