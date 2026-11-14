@@ -40,6 +40,7 @@
 <img src="assets/titles/focus.svg" alt="Right now" width="100%">
 
 <a href="https://github.com/Doosi41/olymp"><img src="assets/focus.svg" alt="Right now: competitive programming in C++ — solutions in olymp" width="100%"></a>
+<a href="https://github.com/Doosi41/network"><img src="assets/network.svg" alt="Right now: computer networks — notes and labs in network" width="100%"></a>
 
 <br>
 

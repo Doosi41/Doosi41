@@ -40,6 +40,7 @@
 <img src="assets/ru/titles/focus.svg" alt="Сейчас" width="100%">
 
 <a href="https://github.com/Doosi41/olymp"><img src="assets/ru/focus.svg" alt="Сейчас: олимпиадное программирование на C++ — решения в olymp" width="100%"></a>
+<a href="https://github.com/Doosi41/network"><img src="assets/ru/network.svg" alt="Сейчас: компьютерные сети — конспекты и лабы в network" width="100%"></a>
 
 <br>
 
