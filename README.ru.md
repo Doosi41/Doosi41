@@ -16,6 +16,8 @@
 <a href="https://www.rentui.it.com"><img src="assets/ru/projects/rentui-kg.svg" alt="rentui.kg — Аренда жилья в Кыргызстане — напрямую от хозяев" width="100%"></a>
 <a href="https://github.com/Doosi41/gb-ansar"><img src="assets/ru/projects/gb-ansar.svg" alt="gb-ansar — ИИ-каталог товаров для склада Ansar Home" width="100%"></a>
 <a href="https://github.com/Doosi41/vibe_studio"><img src="assets/ru/projects/vibe-studio.svg" alt="Vibe Studio — Бесплатный концепт сайта за 1–2 дня. Цена по стране" width="100%"></a>
+<a href="https://github.com/Doosi41/lalafo-parser"><img src="assets/ru/projects/lalafo-parser.svg" alt="lalafo-parser" width="100%"></a>
+
 <a href="https://github.com/Doosi41/olymp"><img src="assets/ru/projects/olymp.svg" alt="olymp — Решения олимпиадных задач. README обновляется сам" width="100%"></a>
 
 <br>
