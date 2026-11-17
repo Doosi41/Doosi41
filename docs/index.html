@@ -164,10 +164,10 @@ Object.assign(controls, { enableDamping: true, dampingFactor: 0.08, autoRotate: 
 
 const sky = new THREE.Mesh(new THREE.SphereGeometry(900, 48, 24), new THREE.ShaderMaterial({
   side: THREE.BackSide, depthWrite: false, fog: false,
-  uniforms: { uNight: { value: 1 }, uSun: { value: new THREE.Vector3(0.5, 0.6, 0.4).normalize() } },
+  uniforms: { uNight: { value: 1 }, uFog: { value: new THREE.Vector3(0.03, 0.04, 0.09) }, uSun: { value: new THREE.Vector3(0.5, 0.6, 0.4).normalize() } },
   vertexShader: 'varying vec3 vDir; void main(){ vDir = normalize(position); gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
   fragmentShader: `
-    varying vec3 vDir; uniform float uNight; uniform vec3 uSun;
+    varying vec3 vDir; uniform float uNight; uniform vec3 uSun; uniform vec3 uFog;
     float h31(vec3 p){ p = fract(p * vec3(.1031, .1030, .0973)); p += dot(p, p.yxz + 33.33); return fract((p.x + p.y) * p.z); }
     void main(){
       vec3 d = normalize(vDir);
@@ -180,7 +180,7 @@ const sky = new THREE.Mesh(new THREE.SphereGeometry(900, 48, 24), new THREE.Shad
       vec3 sp = floor(d * 380.0);
       float star = step(0.9965, h31(sp)) * smoothstep(0.08, 0.5, d.y);
       col += vec3(star) * uNight * (0.5 + 0.5 * h31(sp + 7.0));
-      if (d.y < 0.0) col = mix(col, mix(vec3(0.3, 0.45, 0.3), vec3(0.02, 0.05, 0.04), uNight), smoothstep(0.0, -0.08, d.y));
+      col = mix(uFog, col, smoothstep(0.0, 0.16, d.y));   // у горизонта небо сливается с туманом и дальним океаном
       gl_FragColor = vec4(col, 1.0);
     }`,
 }));
@@ -197,9 +197,77 @@ const DAYS = { exposure: 1.0, hemi: 1.15, sun: 3.2, fog: new THREE.Color('#b9d3e
 const uNight = { value: 1 };   // общий uniform: свет в окнах и фонарях
 
 // ── трава, асфальт, общие материалы ──
-const grass = new THREE.Mesh(new THREE.CircleGeometry(900, 64), new THREE.MeshStandardMaterial({ color: '#3d7a38', roughness: 1 }));
-grass.rotation.x = -Math.PI / 2; grass.position.y = -0.06; grass.receiveShadow = true;
-scene.add(grass);
+// ── океан: бесконечная вода с волнами, пеной у берега и бликами; остров с городом посреди ──
+const SEA_Y = -0.34;   // средний уровень воды, остров стоит над ним
+const WAVES = [[1, 0.35, 40, 0.26], [-0.55, 1, 24, 0.18], [0.35, -1, 14, 0.12], [0.95, 0.75, 8.5, 0.065], [-1, -0.2, 5.5, 0.035]].map(([dx, dz, L, A], i) => {
+  const l = Math.hypot(dx, dz), k = 2 * Math.PI / L;
+  return { dx: dx / l, dz: dz / l, k, A, w: Math.sqrt(9.8 * k) * 0.85, ph: i * 1.7 };
+});
+const WAVE_SUM = WAVES.reduce((s, w) => s + w.A, 0);
+const waveH = (x, z, t) => { let h = SEA_Y; for (const w of WAVES) h += w.A * Math.sin(w.k * (w.dx * x + w.dz * z) - w.w * t + w.ph); return h; };   // те же волны считает шейдер
+const f5 = n => n.toFixed(5);
+const WAVE_GLSL = WAVES.map(w => `{ float ph = ${f5(w.k)} * (${f5(w.dx)} * p.x + ${f5(w.dz)} * p.y) - ${f5(w.w)} * t + ${f5(w.ph)}; h += ${f5(w.A)} * sin(ph); grad += ${f5(w.A * w.k)} * cos(ph) * vec2(${f5(w.dx)}, ${f5(w.dz)}); }`).join('\n  ');
+const SRGB = (r, g, b) => new THREE.Color().setRGB(r, g, b, THREE.SRGBColorSpace);
+const OCEAN_DAY = { deep: new THREE.Color('#0a4f80'), shallow: new THREE.Color('#2fbfbd'), hor: SRGB(0.74, 0.86, 0.97), top: SRGB(0.16, 0.42, 0.86), sun: new THREE.Color('#fff2d0'), sunI: 1 };
+const OCEAN_NIGHT = { deep: new THREE.Color('#0a2c4d'), shallow: new THREE.Color('#1b7088'), hor: SRGB(0.09, 0.11, 0.24), top: SRGB(0.004, 0.012, 0.045), sun: new THREE.Color('#9db4ff'), sunI: 0.5 };
+const oceanMat = new THREE.ShaderMaterial({
+  fog: false,
+  uniforms: { uTime: { value: 0 }, uNight: uNight, uSunI: { value: 1 }, uFogNear: { value: 120 }, uFogFar: { value: 520 }, fogColor: { value: scene.fog.color },
+    uDeep: { value: new THREE.Color() }, uShallow: { value: new THREE.Color() }, uSkyHor: { value: new THREE.Color() }, uSkyTop: { value: new THREE.Color() },
+    uSunDir: { value: new THREE.Vector3(0, 1, 0) }, uSunCol: { value: new THREE.Color() }, uIsl: { value: new THREE.Vector4(0, 0, 60, 20) } },
+  vertexShader: `
+    uniform float uTime; varying vec3 vW; varying vec2 vGrad; varying float vH;
+    void wave(vec2 p, float t, out float h, out vec2 grad) { h = 0.0; grad = vec2(0.0);
+      ${WAVE_GLSL}
+    }
+    void main() { float h; vec2 g; wave(position.xz, uTime, h, g);
+      vW = vec3(position.x, ${f5(SEA_Y)} + h, position.z); vGrad = g; vH = h;
+      gl_Position = projectionMatrix * viewMatrix * vec4(vW, 1.0); }`,
+  fragmentShader: `
+    uniform float uTime, uNight, uSunI, uFogNear, uFogFar; uniform vec3 uDeep, uShallow, uSkyHor, uSkyTop, uSunDir, uSunCol, fogColor; uniform vec4 uIsl;
+    varying vec3 vW; varying vec2 vGrad; varying float vH;
+    float sdIsland(vec2 p) { vec2 q = abs(p - uIsl.xy) - (uIsl.zw - 10.0); return length(max(q, 0.0)) + min(max(q.x, q.y), 0.0) - 10.0; }
+    void main() {
+      vec3 V = cameraPosition - vW; float dist = length(V); V /= dist;
+      vec2 p = vW.xz; float t = uTime, fade = 1.0 - smoothstep(40.0, 260.0, dist);
+      vec2 g = vGrad;   // мелкая рябь поверх крупных волн
+      g += fade * (0.012 * 1.7 * cos(dot(p, vec2(0.83, 0.55)) * 1.7 + t * 1.9) * vec2(0.83, 0.55)
+                 + 0.009 * 2.6 * cos(dot(p, vec2(-0.5, 0.87)) * 2.6 - t * 2.3) * vec2(-0.5, 0.87)
+                 + 0.006 * 3.9 * cos(dot(p, vec2(0.2, -0.98)) * 3.9 + t * 2.8) * vec2(0.2, -0.98));
+      vec3 N = normalize(vec3(-g.x * 1.9, 1.0, -g.y * 1.9));   // волны выразительнее
+      float F = (0.02 + 0.98 * pow(1.0 - max(dot(N, V), 0.0), 5.0)) * 0.78;
+      vec3 R = reflect(-V, N); R.y = abs(R.y);
+      vec3 sky = mix(uSkyHor, uSkyTop, pow(clamp(R.y, 0.0, 1.0), 0.45));
+      float d = sdIsland(p);
+      vec3 body = mix(uDeep, uShallow, (1.0 - smoothstep(0.0, 24.0, d)) * 0.85);
+      float crest = clamp(vH / ${f5(WAVE_SUM)}, 0.0, 1.0);
+      body = mix(body, body * 1.7 + uShallow * 0.12, crest * 0.4);
+      vec3 col = mix(body, sky, F);
+      float sd = max(dot(R, normalize(uSunDir)), 0.0);
+      col += uSunCol * uSunI * (pow(sd, 320.0) * 9.0 + pow(sd, 40.0) * 0.35);   // солнечная (ночью лунная) дорожка
+      float stripes = 0.5 + 0.5 * sin(d * 2.4 - t * 1.3 + 1.2 * sin(p.x * 0.3 + t * 0.2));   // пена накатывает на берег
+      float foam = (1.0 - smoothstep(0.2, 3.6, d)) * (0.35 + 0.65 * stripes) + smoothstep(0.8, 1.0, crest) * 0.45 * fade;
+      col = mix(col, vec3(mix(1.0, 0.5, uNight)), clamp(foam, 0.0, 1.0) * 0.85);
+      col = mix(col, fogColor, smoothstep(uFogNear, uFogFar, dist));
+      gl_FragColor = vec4(col, 1.0);
+      #include <tonemapping_fragment>
+      #include <colorspace_fragment>
+    }`,
+});
+function oceanGeometry() {   // кольца: у острова густо, к горизонту редко
+  const N = 300, SEG = 360, R = 1900, pos = new Float32Array((N + 1) * (SEG + 1) * 3), idx = [];
+  for (let k = 0; k <= N; k++) {
+    const r = k === 0 ? 0 : 3 + R * Math.pow(k / N, 2.2);
+    for (let s = 0; s <= SEG; s++) { const a = s / SEG * Math.PI * 2, o = (k * (SEG + 1) + s) * 3; pos[o] = Math.cos(a) * r; pos[o + 1] = 0; pos[o + 2] = Math.sin(a) * r; }
+  }
+  for (let k = 0; k < N; k++) for (let s = 0; s < SEG; s++) { const a = k * (SEG + 1) + s, b = a + SEG + 1; idx.push(a, b, a + 1, a + 1, b, b + 1); }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.BufferAttribute(pos, 3)); g.setIndex(idx);
+  return g;
+}
+const ocean = new THREE.Mesh(oceanGeometry(), oceanMat);
+ocean.frustumCulled = false;
+scene.add(ocean);
 const asphaltMat = new THREE.MeshStandardMaterial({ color: '#2b2d33', roughness: 0.9 });
 const trackMat = new THREE.MeshStandardMaterial({ color: '#2b2d33', roughness: 0.9, emissive: '#2a2f3a', emissiveIntensity: 0 });   // трасса ночью освещена
 const kerbMat = new THREE.MeshStandardMaterial({ roughness: 0.6 });
@@ -701,9 +769,7 @@ function monaco(xWest, xEast, zSouth, zTop, hairpinAt, mainW) {
   // гавань: набережная, вода и яхты вдоль главной прямой
   const z0 = zSouth + mainW / 2 + 0.9, x0 = xWest - 10, x1 = xEast + 10;
   const quay = new THREE.Mesh(box, new THREE.MeshStandardMaterial({ color: '#c9ccd1', roughness: 0.9 }));
-  quay.position.set(0, -0.02, z0 - 0.45); quay.scale.set(x1 - x0, 0.06, 0.9); quay.receiveShadow = true; world.add(quay);
-  const sea = new THREE.Mesh(new THREE.PlaneGeometry(x1 - x0, 22), seaMat);
-  sea.rotation.x = -Math.PI / 2; sea.position.set(0, -0.03, z0 + 11); sea.receiveShadow = true; world.add(sea);
+  quay.position.set(0, -0.5, z0 - 0.45); quay.scale.set(x1 - x0, 0.48, 0.9); quay.receiveShadow = true; world.add(quay);   // стенка набережной до самой воды
   const n = Math.max(6, Math.round((x1 - x0) / 5)), yachts = [];
   for (let i = 0; i < n; i++) yachts.push({ x: x0 + 4 + (i + hash(i, 21) * 0.6) * (x1 - x0 - 8) / n, z: z0 + 2.2 + (i % 3) * 2.4 + hash(i, 22),
     s: 0.9 + hash(i, 23) * 0.9, ph: hash(i, 24) * 6.28 });
@@ -719,7 +785,7 @@ function bobYachts(t) {   // яхты покачиваются на волнах
   if (!Y) return;
   const [hull, deck, glass, mast, lamp] = Y.parts;
   Y.list.forEach((y, i) => {
-    const up = 0.04 * Math.sin(t * 1.3 + y.ph), roll = 0.04 * Math.sin(t * 0.9 + y.ph * 2), s = y.s;
+    const up = waveH(y.x, y.z, t) + 0.03, roll = 0.04 * Math.sin(t * 0.9 + y.ph * 2), s = y.s;
     const put = (m, x, yy, z, sx, sy, sz) => { dummy.position.set(y.x + x * s, up + yy * s, y.z + z * s); dummy.rotation.set(roll, 0, 0); dummy.scale.set(sx * s, sy * s, sz * s); dummy.updateMatrix(); m.setMatrixAt(i, dummy.matrix); };
     put(hull, 0, -0.05, 0, 2.2, 0.32, 0.8);
     put(deck, -0.25, 0.27, 0, 1.0, 0.22, 0.6);
@@ -728,6 +794,143 @@ function bobYachts(t) {   // яхты покачиваются на волнах
     put(lamp, -0.1, 2.12, 0, 0.09, 0.09, 0.09);
   });
   for (const m of Y.parts) m.instanceMatrix.needsUpdate = true;
+}
+
+// ── остров, флот и акулы ──
+const sharkMat = new THREE.MeshStandardMaterial({ color: '#5b6874', roughness: 0.55, metalness: 0.1 });
+const wakeMat = new THREE.MeshBasicMaterial({ color: '#ffffff', transparent: true, opacity: 0.32, depthWrite: false });
+const hullMat = new THREE.MeshStandardMaterial({ roughness: 0.4, metalness: 0.1 });   // цвет корпуса и контейнеров - на каждом экземпляре свой
+const sailMat = new THREE.MeshStandardMaterial({ roughness: 0.8, side: THREE.DoubleSide });
+const sail = new THREE.ConeGeometry(0.5, 1, 3).translate(0, 0.5, 0);
+const HULLS = ['#f4f6f9', '#f4f6f9', '#1d2c4a', '#2a2d33', '#b3202a', '#e8dcc3'], BOXES = ['#c0392b', '#2e86c1', '#27ae60', '#e67e22', '#f1c40f', '#8e44ad', '#ecf0f1', '#16a085'];
+const pick = (arr, i, k) => new THREE.Color(arr[Math.floor(hash(i, k) * arr.length)]);
+
+function wakeArms(x, len, w, y = 0.05) {   // след за кормой: две расходящиеся полосы пены
+  const out = [];
+  for (const sg of [1, -1]) { const f = 0.2 * sg; out.push([x - len / 2 * Math.cos(f), y, len / 2 * Math.sin(f), 0, f, 0, len, 0.03, w]); }
+  return out;
+}
+// тип судна: слоты [геометрия, материал] и функция, которая по размеру и номеру отдаёт локальные позиции слотов [x, y, z, rx, ry, rz, sx, sy, sz, цвет?]
+const SHIP_TYPES = {
+  yacht: { n: 70, off: [8, 330], v: [2.6, 4.6], len: s => 2.2 * s, wid: s => 0.8 * s, sz: [1.3, 3.2], slots: [[hullGeo, hullMat], [box, yachtWhite], [box, yachtGlass], [cyl, barrierMat], [sphere, yachtLight], [box, wakeMat], [box, wakeMat]],
+    parts: (s, i) => [[0, -0.05 * s, 0, 0, 0, 0, 2.2 * s, 0.32 * s, 0.8 * s, pick(HULLS, i, 31)], [-0.25 * s, 0.27 * s, 0, 0, 0, 0, s, 0.22 * s, 0.6 * s], [0.05 * s, 0.3 * s, 0, 0, 0, 0, 0.42 * s, 0.14 * s, 0.62 * s],
+      [-0.1 * s, 0.49 * s, 0, 0, 0, 0, 0.03 * s, 1.6 * s, 0.03 * s], [-0.1 * s, 2.12 * s, 0, 0, 0, 0, 0.09 * s, 0.09 * s, 0.09 * s], ...wakeArms(-1.1 * s, 3.2 * s, 0.14 * s)] },
+  sail: { n: 42, off: [10, 380], v: [1.8, 3.2], len: s => 1.8 * s, wid: s => 0.55 * s, sz: [1.4, 2.8], slots: [[hullGeo, hullMat], [box, yachtWhite], [cyl, barrierMat], [sail, sailMat], [sail, sailMat], [sphere, yachtLight], [box, wakeMat], [box, wakeMat]],
+    parts: (s, i) => [[0, -0.04 * s, 0, 0, 0, 0, 1.8 * s, 0.28 * s, 0.55 * s, pick(HULLS, i, 32)], [-0.1 * s, 0.24 * s, 0, 0, 0, 0, 0.5 * s, 0.14 * s, 0.3 * s], [0, 0.2 * s, 0, 0, 0, 0, 0.025 * s, 2.8 * s, 0.025 * s],
+      [-0.12 * s, 0.3 * s, 0, 0, 0, 0, 0.95 * s, 2.35 * s, 0.03 * s, pick(['#ffffff', '#f3ead2', '#e6edf5'], i, 33)], [0.5 * s, 0.3 * s, 0, 0, 0, 0, 0.5 * s, 1.5 * s, 0.03 * s, pick(['#ffffff', '#d33a3a', '#2f6fd0'], i, 34)],
+      [0, 3.0 * s, 0, 0, 0, 0, 0.08 * s, 0.08 * s, 0.08 * s], ...wakeArms(-0.9 * s, 2.6 * s, 0.12 * s)] },
+  cargo: { n: 14, off: [70, 430], v: [2.2, 3.4], len: s => 30 * s, wid: s => 6.6 * s, sz: [0.85, 1.2], slots: [[hullGeo, hullMat], ...Array(8).fill([box, hullMat]), [box, yachtWhite], [box, yachtGlass], [cyl, hullMat], [sphere, yachtLight], [box, wakeMat], [box, wakeMat]],
+    parts: (s, i) => [[0, -1.4 * s, 0, 0, 0, 0, 30 * s, 2.6 * s, 6.6 * s, pick(['#8a1c1c', '#1d3557', '#2f3a40', '#3a5a40'], i, 35)],
+      ...[...Array(8).keys()].map(j => [(-6 + 4.6 * (j % 4)) * s, 1.2 * s, (j < 4 ? -1.55 : 1.55) * s, 0, 0, 0, 4.2 * s, (1.6 + 1.8 * hash(i * 8 + j, 36)) * s, 2.7 * s, pick(BOXES, i * 8 + j, 37)]),
+      [-12.5 * s, 1.2 * s, 0, 0, 0, 0, 3 * s, 3.6 * s, 5.4 * s], [-12.5 * s, 3.3 * s, 0, 0, 0, 0, 3.08 * s, 0.55 * s, 5.5 * s], [-14.6 * s, 4.8 * s, 0, 0, 0, 0, 1.3 * s, 2.4 * s, 1.3 * s, pick(['#c0392b', '#2e86c1'], i, 38)],
+      [-12.5 * s, 4.9 * s, 0, 0, 0, 0, 0.3 * s, 0.3 * s, 0.3 * s], ...wakeArms(-15.5 * s, 16 * s, 0.7 * s)] },
+  tanker: { n: 8, off: [80, 450], v: [1.8, 2.8], len: s => 34 * s, wid: s => 7 * s, sz: [0.85, 1.1], slots: [[hullGeo, hullMat], [box, barrierMat], [cyl, hullMat], [cyl, hullMat], [cyl, hullMat], [box, yachtWhite], [box, yachtGlass], [sphere, yachtLight], [box, wakeMat], [box, wakeMat]],
+    parts: (s, i) => [[0, -1.2 * s, 0, 0, 0, 0, 34 * s, 2.2 * s, 7 * s, pick(['#7d1a1a', '#2a2d33', '#1d3557'], i, 39)], [-1 * s, 1.0 * s, 0, 0, 0, 0, 22 * s, 0.35 * s, 0.7 * s],
+      ...[-4, 3, 10].map((x, j) => [x * s, 1.0 * s, 0, 0, 0, 0, 5.4 * s, 1.4 * s, 5.4 * s, pick(['#c9ccd1', '#9aa3ad'], i * 3 + j, 40)]),
+      [-14 * s, 1.0 * s, 0, 0, 0, 0, 4.2 * s, 4 * s, 6.4 * s], [-14 * s, 3.4 * s, 0, 0, 0, 0, 4.3 * s, 0.55 * s, 6.5 * s], [-14 * s, 5.1 * s, 0, 0, 0, 0, 0.3 * s, 0.3 * s, 0.3 * s], ...wakeArms(-17.5 * s, 17 * s, 0.8 * s)] },
+  cruise: { n: 6, off: [60, 320], v: [2.0, 3.0], len: s => 34 * s, wid: s => 6.6 * s, sz: [0.9, 1.15], slots: [[hullGeo, hullMat], ...Array(4).fill([box, yachtWhite]), ...Array(4).fill([box, yachtGlass]), [cyl, hullMat], [sphere, yachtLight], [box, wakeMat], [box, wakeMat]],
+    parts: (s, i) => [[0, -1.4 * s, 0, 0, 0, 0, 34 * s, 3 * s, 6.6 * s, pick(['#ffffff', '#f4f6f9', '#e9edf3'], i, 41)],
+      ...[0, 1, 2, 3].map(k => [-1.5 * s, (1.6 + k * 1.15) * s, 0, 0, 0, 0, (28 - k * 5) * s, 0.8 * s, (6 - k * 0.7) * s]),
+      ...[0, 1, 2, 3].map(k => [-1.5 * s, (1.8 + k * 1.15) * s, 0, 0, 0, 0, (28.2 - k * 5) * s, 0.4 * s, (6.1 - k * 0.7) * s]),
+      [-6 * s, 6.2 * s, 0, 0, 0, 0, 2 * s, 2.6 * s, 3 * s, pick(['#c0392b', '#1d3557'], i, 42)], [4 * s, 6.3 * s, 0, 0, 0, 0, 0.4 * s, 0.4 * s, 0.4 * s], ...wakeArms(-18 * s, 18 * s, 0.9 * s)] },
+};
+
+function buildSea(isl) {
+  const ships = [], tmpM = new THREE.Matrix4(), q1 = new THREE.Quaternion(), q2 = new THREE.Quaternion(), q3 = new THREE.Quaternion(), ax = new THREE.Vector3(), V3 = new THREE.Vector3(1, 1, 1);
+  const A0 = isl.hx * 1.45 + 6, B0 = isl.hz * 1.45 + 14;   // эллипс вокруг острова, судна по нему не заходят на берег
+  const fleets = [];
+  let id = 0;
+  for (const [name, T] of Object.entries(SHIP_TYPES)) {
+    const meshes = T.slots.map(([g, m]) => { const im = instanced(g, m, T.n); im.castShadow = false; im.receiveShadow = false; im.frustumCulled = false; world.add(im); return im; });
+    const fl = { T, meshes, ships: [] };
+    for (let i = 0; i < T.n; i++) {
+      const k = id++, s = mix(T.sz[0], T.sz[1], hash(k, 50)), off = mix(T.off[0], T.off[1], Math.pow(hash(k, 51), 1.3));
+      const A = A0 + off, B = B0 + off, v = mix(T.v[0], T.v[1], hash(k, 52)), dir = hash(k, 53) < 0.5 ? -1 : 1;
+      const parts = T.parts(s, i), loc = parts.map(p => new THREE.Matrix4().compose(new THREE.Vector3(p[0], p[1], p[2]), new THREE.Quaternion().setFromEuler(new THREE.Euler(p[3], p[4], p[5])), new THREE.Vector3(p[6], p[7], p[8])));
+      parts.forEach((p, j) => { if (p[9]) meshes[j].setColorAt(i, p[9]); });
+      fl.ships.push({ i, A, B, om: dir * v / ((A + B) / 2), th0: hash(k, 54) * 6.283, ph: hash(k, 55) * 6.283, L: T.len(s), W: T.wid(s), loc });
+    }
+    for (const m of meshes) if (m.instanceColor) m.instanceColor.needsUpdate = true;
+    fleets.push(fl);
+  }
+  // акулы: плавник и хвост над водой, шлейф за ними; некоторые время от времени выпрыгивают
+  const NS = 28, sharks = [];
+  const sparts = [[cone, sharkMat], [cone, sharkMat], [sphere, sharkMat], [box, wakeMat], [box, wakeMat]].map(([g, m]) => { const im = instanced(g, m, NS); im.castShadow = false; im.frustumCulled = false; world.add(im); return im; });
+  for (let i = 0; i < NS; i++) {
+    const off = mix(4, 260, Math.pow(hash(i, 60), 1.4)), A = A0 + off, B = B0 + off, v = mix(3.0, 5.2, hash(i, 61));
+    sharks.push({ A, B, om: (hash(i, 62) < 0.5 ? -1 : 1) * v / ((A + B) / 2), th0: hash(i, 63) * 6.283, ph: hash(i, 64) * 6.283, s: mix(0.9, 1.9, hash(i, 65)), leap: i % 3 === 0, per: 20 + hash(i, 66) * 30 });
+  }
+  world.userData.sea = { fleets, sharks, sparts, isl, q1, q2, q3, tmpM, ax, V3 };
+}
+
+const _p = new THREE.Vector3(), _base = new THREE.Matrix4(), _m = new THREE.Matrix4(), _q = new THREE.Quaternion(), _qa = new THREE.Quaternion(), _qb = new THREE.Quaternion(), _ex = new THREE.Vector3(1, 0, 0), _ez = new THREE.Vector3(0, 0, 1), _sc = new THREE.Vector3(1, 1, 1);
+function orbit(sh, isl, t) {   // позиция на эллипсе вокруг острова и курс
+  const th = sh.th0 + sh.om * t, rr = 1 + 0.025 * Math.sin(0.21 * t + sh.ph);
+  const x = isl.cx + sh.A * rr * Math.cos(th), z = isl.cz + sh.B * rr * Math.sin(th);
+  const vx = -sh.A * Math.sin(th) * sh.om, vz = sh.B * Math.cos(th) * sh.om;
+  return [x, z, Math.atan2(-vz, vx)];
+}
+function sail_(t) {
+  const S = world.userData.sea;
+  if (!S) return;
+  const { isl } = S;
+  for (const fl of S.fleets) {
+    for (const sh of fl.ships) {
+      const [x, z, yaw] = orbit(sh, isl, t), c = Math.cos(yaw), sn = Math.sin(yaw), hl = sh.L / 2, hw = sh.W / 2;
+      const hb = waveH(x + c * hl, z - sn * hl, t), hs = waveH(x - c * hl, z + sn * hl, t), hp = waveH(x + sn * hw, z + c * hw, t), hn = waveH(x - sn * hw, z - c * hw, t);
+      const pitch = Math.atan2(hb - hs, sh.L) * 0.9, roll = Math.atan2(hn - hp, sh.W) * 0.9;
+      _p.set(x, (hb + hs + hp + hn) / 4, z);
+      _qa.setFromAxisAngle(_ex.set(0, 1, 0), yaw);
+      _qb.setFromAxisAngle(_ez.set(0, 0, 1), pitch); _qa.multiply(_qb);
+      _qb.setFromAxisAngle(_ex.set(1, 0, 0), roll); _qa.multiply(_qb);
+      _base.compose(_p, _qa, _sc);
+      fl.meshes.forEach((m, j) => { _m.multiplyMatrices(_base, sh.loc[j]); m.setMatrixAt(sh.i, _m); });
+    }
+    for (const m of fl.meshes) m.instanceMatrix.needsUpdate = true;
+  }
+  const [fin, tail, body, wl, wr] = S.sparts;
+  S.sharks.forEach((sh, i) => {
+    const [x, z, yaw] = orbit(sh, isl, t), s = sh.s, h = waveH(x, z, t);
+    let lift = 0, pitch = 0;
+    if (sh.leap) {   // прыжок: короткая дуга над водой
+      const u = ((t + sh.ph * 3) % sh.per) / sh.per;
+      if (u < 0.06) { const tau = u / 0.06; lift = 3.2 * s * 4 * tau * (1 - tau); pitch = (0.5 - tau) * 1.6; }
+    }
+    _p.set(x, h + lift, z);
+    _qa.setFromAxisAngle(_ex.set(0, 1, 0), yaw);
+    _qb.setFromAxisAngle(_ez.set(0, 0, 1), pitch); _qa.multiply(_qb);
+    _qb.setFromAxisAngle(_ex.set(1, 0, 0), 0.06 * Math.sin(t * 1.6 + sh.ph)); _qa.multiply(_qb);
+    _base.compose(_p, _qa, _sc);
+    const sway = Math.sin(t * 3.2 + sh.ph), put = (mesh, px, py, pz, rx, ry, rz, sx, sy, sz) => {
+      _q.setFromEuler(new THREE.Euler(rx, ry, rz)); _m.compose(new THREE.Vector3(px, py, pz), _q, new THREE.Vector3(sx, sy, sz)); _m.premultiply(_base); mesh.setMatrixAt(i, _m);
+    };
+    put(fin, 0.15 * s, -0.12 * s, 0, 0, 0, 0.35, 0.7 * s, 0.75 * s, 0.07 * s);
+    put(tail, -1.15 * s, -0.12 * s, 0.12 * s * sway, 0, 0.5 * sway, 0.25, 0.5 * s, 0.95 * s, 0.05 * s);
+    put(body, 0, -0.5 * s, 0, 0, 0, 0, 2.4 * s, 0.5 * s, 0.5 * s);
+    const arm = (mesh, sg) => { const f = 0.22 * sg, len = 3.4 * s; put(mesh, -0.8 * s - len / 2 * Math.cos(f), 0.05 - lift, len / 2 * Math.sin(f), 0, f, 0, len, 0.03, 0.14 * s); };
+    arm(wl, 1); arm(wr, -1);
+  });
+  for (const m of S.sparts) m.instanceMatrix.needsUpdate = true;
+}
+
+function buildIsland(xWest, xEast, zSouth, D, mainW, hairpinX) {
+  const z0 = zSouth + mainW / 2 + 0.9;   // линия набережной
+  const minX = xWest - hairpinX - 12, maxX = xEast + 12, minZ = -D / 2 - 8;
+  const cx = (minX + maxX) / 2, hx = (maxX - minX) / 2, hz = (z0 - minZ) * 0.58, cz = minZ + hz;
+  const pts = [], N = 220;
+  for (let i = 0; i < N; i++) {
+    const a = i / N * Math.PI * 2, c = Math.cos(a), s = Math.sin(a), e = 0.25;
+    const w = 1 + 0.018 * (0.5 * Math.sin(3 * a + 1.3) + 0.35 * Math.sin(5 * a + 0.4) + 0.25 * Math.sin(9 * a + 2.1));
+    pts.push(new THREE.Vector2(cx + hx * Math.sign(c) * Math.pow(Math.abs(c), e) * w, Math.min(z0, cz + hz * Math.sign(s) * Math.pow(Math.abs(s), e) * w)));
+  }
+  const geo = new THREE.ExtrudeGeometry(new THREE.Shape(pts), { depth: 1.2, bevelEnabled: false });
+  geo.rotateX(Math.PI / 2); geo.translate(0, -0.06, 0);
+  const landMat = new THREE.MeshStandardMaterial({ color: '#3d7a38', roughness: 1, side: THREE.DoubleSide });
+  const isle = new THREE.Mesh(geo, [landMat, new THREE.MeshStandardMaterial({ color: '#b9a37a', roughness: 1, side: THREE.DoubleSide })]);
+  isle.receiveShadow = true; world.add(isle);
+  world.userData.islandMat = landMat;
+  oceanMat.uniforms.uIsl.value.set(cx, (minZ + z0) / 2, hx, (z0 - minZ) / 2 * 1.02);
+  return { cx, cz: (minZ + z0) / 2, hx, hz: (z0 - minZ) / 2, z0 };
 }
 
 // ── контейнеры динамической сцены ──
@@ -1028,44 +1231,19 @@ function build(from, to) {
     }
   }
 
-  // ── дальний город по кругу + Marina Bay ──
-  const R0 = Math.max(80, Math.max(W, D) / 2 + 85);
-  const far = [];
-  for (let i = 0; i < 260; i++) {
-    const a = hash(i, 1) * Math.PI * 2, r = R0 + hash(i, 2) * 60 + (hash(i, 3) > 0.7 ? 40 : 0);
-    const w = 3 + hash(i, 4) * 4, h = 8 + Math.pow(hash(i, 5), 2.4) * 32;
-    far.push({ x: Math.cos(a) * r, z: Math.sin(a) * r, w, d: 3 + hash(i, 6) * 5, h, seed: hash(i, 7) });
-  }
-  const farMesh = instanced(box, wallMat, far.length, { windows: true });
-  farMesh.castShadow = false; farMesh.receiveShadow = false;
-  far.forEach((b, i) => {
-    dummy.rotation.set(0, 0, 0); dummy.position.set(b.x, 0, b.z); dummy.scale.set(b.w, b.h, b.d); dummy.updateMatrix(); farMesh.setMatrixAt(i, dummy.matrix);
-    farMesh.setColorAt(i, new THREE.Color().setHSL(0.58 + hash(i, 8) * 0.05, 0.18, 0.28 + hash(i, 9) * 0.18));
-    const a = farMesh.geometry.attributes; a.aFloors.setX(i, Math.round(b.h / 1.0)); a.aCols.setXY(i, Math.round(b.w / 0.9), Math.round(b.d / 0.9)); a.aSeed.setX(i, b.seed);
-  });
-  world.add(farMesh);
-  const mbsAt = new THREE.Vector3(-R0 * 0.55, 0, -R0 * 0.75);   // три башни с «кораблём» на крыше
-  const mbsMesh = instanced(box, wallMat, 3, { windows: true });
-  mbsMesh.castShadow = false;
-  [-16, 0, 16].forEach((dx, i) => {
-    dummy.rotation.set(0, 0, 0); dummy.position.set(mbsAt.x + dx, 0, mbsAt.z); dummy.scale.set(10, 55, 14); dummy.updateMatrix(); mbsMesh.setMatrixAt(i, dummy.matrix);
-    mbsMesh.setColorAt(i, new THREE.Color('#5c6b82'));
-    const a = mbsMesh.geometry.attributes; a.aFloors.setX(i, 55); a.aCols.setXY(i, 8, 10); a.aSeed.setX(i, i * 0.31);
-  });
-  const ship = new THREE.Mesh(box, new THREE.MeshStandardMaterial({ color: '#cfd5df', roughness: 0.5, metalness: 0.3 }));
-  ship.scale.set(66, 3, 16); ship.position.set(mbsAt.x, 55, mbsAt.z);
-  world.add(mbsMesh, ship);
+  // ── остров посреди океана, корабли и акулы ──
+  const isl = buildIsland(xWest, xEast, zSouth, D, TRACK_W, hairpin ? HAIRPIN_X : 0);
+  buildSea(isl);
 
   // ── свет, тень, камера ──
   const size = Math.max(W, D) / 2 + 12;
   sun.shadow.camera.left = -size; sun.shadow.camera.right = size; sun.shadow.camera.top = size; sun.shadow.camera.bottom = -size;
   sun.shadow.camera.near = 1; sun.shadow.camera.far = 400; sun.shadow.camera.updateProjectionMatrix();
-  grass.visible = true;
   const dist = Math.max(18, Math.max(W, D) * 0.95);
   scene.fog.near = Math.max(120, dist * 0.8); scene.fog.far = Math.max(520, dist * 3);   // город большой: туман дальше
   controls.target.set(0, 1, 2);
   camera.position.set(dist * 0.62, dist * 0.55, dist * 0.78);
-  scene.userData.layout = { W, D, zSouth, R0 };
+  scene.userData.layout = { W, D, zSouth, isl };
   applyNight(uNight.value);
   if (q.get('cam')) { const [cx, cy, cz] = q.get('cam').split(',').map(Number); camera.position.set(cx, cy, cz); controls.autoRotate = false; if (q.get('tgt')) controls.target.set(...q.get('tgt').split(',').map(Number)); }
 
@@ -1089,7 +1267,14 @@ function applyNight(n) {
   hemi.intensity = mix(DAYS.hemi, NIGHT.hemi, n); hemi.color.copy(DAYS.hemiSky).lerp(NIGHT.hemiSky, n); hemi.groundColor.copy(DAYS.hemiGround).lerp(NIGHT.hemiGround, n);
   renderer.toneMappingExposure = mix(DAYS.exposure, NIGHT.exposure, n);
   scene.fog.color.copy(DAYS.fog).lerp(NIGHT.fog, n);
-  grass.material.color.set('#3d7a38').lerp(new THREE.Color('#14301e'), n);
+  const isle = world.userData.islandMat;
+  if (isle) isle.color.set('#3d7a38').lerp(new THREE.Color('#14301e'), n);
+  const OU = oceanMat.uniforms;
+  OU.uDeep.value.copy(OCEAN_DAY.deep).lerp(OCEAN_NIGHT.deep, n); OU.uShallow.value.copy(OCEAN_DAY.shallow).lerp(OCEAN_NIGHT.shallow, n);
+  OU.uSkyHor.value.copy(OCEAN_DAY.hor).lerp(OCEAN_NIGHT.hor, n); OU.uSkyTop.value.copy(OCEAN_DAY.top).lerp(OCEAN_NIGHT.top, n);
+  OU.uSunCol.value.copy(OCEAN_DAY.sun).lerp(OCEAN_NIGHT.sun, n); OU.uSunI.value = mix(OCEAN_DAY.sunI, OCEAN_NIGHT.sunI, n); OU.uSunDir.value.copy(sunDir);
+  const fc = {}; scene.fog.color.getRGB(fc, THREE.SRGBColorSpace); sky.material.uniforms.uFog.value.set(fc.r, fc.g, fc.b);
+  yachtGlass.emissive.set('#ffd27a'); yachtGlass.emissiveIntensity = n * 0.7;   // окна кораблей светятся ночью
   const bulbs = world.userData.bulbs, door = world.userData.doorMat;
   if (bulbs) bulbs.material.emissiveIntensity = n * 2.2;
   if (door) door.emissiveIntensity = n * 0.9;
@@ -1232,7 +1417,9 @@ renderer.setAnimationLoop(now => {
   grow(now);
   race(dt);
   updateTower(dt);
+  oceanMat.uniforms.uTime.value = now / 1000; oceanMat.uniforms.uFogNear.value = scene.fog.far * 0.45; oceanMat.uniforms.uFogFar.value = scene.fog.far * 2.1;   // вода видна далеко, горизонт всё равно тонет в тумане
   bobYachts(now / 1000);
+  sail_(now / 1000);
   heli.userData.rotor.rotation.y += dt * 24; heli.userData.tail.rotation.x += dt * 30;
   sky.position.copy(camera.position);
   controls.update();
