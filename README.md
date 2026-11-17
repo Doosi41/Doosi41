@@ -56,4 +56,4 @@
 
 <br>
 
-<img src="assets/footer.svg" alt="Stay hungry. Stay foolish. — Steve Jobs, 1955–2011" width="100%">
+<img src="assets/footer.svg" alt="Talk is cheap. Show me the code. — Linus Torvalds" width="100%">

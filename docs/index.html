@@ -199,7 +199,7 @@ const uNight = { value: 1 };   // общий uniform: свет в окнах и 
 // ── трава, асфальт, общие материалы ──
 // ── океан: бесконечная вода с волнами, пеной у берега и бликами; остров с городом посреди ──
 const SEA_Y = -0.34;   // средний уровень воды, остров стоит над ним
-const WAVES = [[1, 0.35, 40, 0.26], [-0.55, 1, 24, 0.18], [0.35, -1, 14, 0.12], [0.95, 0.75, 8.5, 0.065], [-1, -0.2, 5.5, 0.035]].map(([dx, dz, L, A], i) => {
+const WAVES = [[0.7, 0.3, 95, 0.34], [1, 0.35, 42, 0.42], [-0.55, 1, 24, 0.3], [0.35, -1, 14, 0.2], [0.95, 0.75, 8.5, 0.105], [-1, -0.2, 5.5, 0.055]].map(([dx, dz, L, A], i) => {
   const l = Math.hypot(dx, dz), k = 2 * Math.PI / L;
   return { dx: dx / l, dz: dz / l, k, A, w: Math.sqrt(9.8 * k) * 0.85, ph: i * 1.7 };
 });
@@ -231,20 +231,22 @@ const oceanMat = new THREE.ShaderMaterial({
       vec3 V = cameraPosition - vW; float dist = length(V); V /= dist;
       vec2 p = vW.xz; float t = uTime, fade = 1.0 - smoothstep(40.0, 260.0, dist);
       vec2 g = vGrad;   // мелкая рябь поверх крупных волн
-      g += fade * (0.012 * 1.7 * cos(dot(p, vec2(0.83, 0.55)) * 1.7 + t * 1.9) * vec2(0.83, 0.55)
-                 + 0.009 * 2.6 * cos(dot(p, vec2(-0.5, 0.87)) * 2.6 - t * 2.3) * vec2(-0.5, 0.87)
-                 + 0.006 * 3.9 * cos(dot(p, vec2(0.2, -0.98)) * 3.9 + t * 2.8) * vec2(0.2, -0.98));
-      vec3 N = normalize(vec3(-g.x * 1.9, 1.0, -g.y * 1.9));   // волны выразительнее
-      float F = (0.02 + 0.98 * pow(1.0 - max(dot(N, V), 0.0), 5.0)) * 0.78;
+      g += fade * (0.02 * 1.7 * cos(dot(p, vec2(0.83, 0.55)) * 1.7 + t * 1.9) * vec2(0.83, 0.55)
+                 + 0.015 * 2.6 * cos(dot(p, vec2(-0.5, 0.87)) * 2.6 - t * 2.3) * vec2(-0.5, 0.87)
+                 + 0.01 * 3.9 * cos(dot(p, vec2(0.2, -0.98)) * 3.9 + t * 2.8) * vec2(0.2, -0.98));
+      vec3 N = normalize(vec3(-g.x * 2.6, 1.0, -g.y * 2.6));   // волны ощутимо рельефнее
+      float F = (0.03 + 0.97 * pow(1.0 - max(dot(N, V), 0.0), 4.0)) * 0.9;
       vec3 R = reflect(-V, N); R.y = abs(R.y);
       vec3 sky = mix(uSkyHor, uSkyTop, pow(clamp(R.y, 0.0, 1.0), 0.45));
       float d = sdIsland(p);
       vec3 body = mix(uDeep, uShallow, (1.0 - smoothstep(0.0, 24.0, d)) * 0.85);
       float crest = clamp(vH / ${f5(WAVE_SUM)}, 0.0, 1.0);
-      body = mix(body, body * 1.7 + uShallow * 0.12, crest * 0.4);
+      body = mix(body * 0.72, body * 1.85 + uShallow * 0.15, smoothstep(-0.3, 1.0, crest));   // впадины темнее, гребни светлее — волны читаются издалека
       vec3 col = mix(body, sky, F);
       float sd = max(dot(R, normalize(uSunDir)), 0.0);
-      col += uSunCol * uSunI * (pow(sd, 320.0) * 9.0 + pow(sd, 40.0) * 0.35);   // солнечная (ночью лунная) дорожка
+      float h31w = fract(sin(dot(floor(p * 3.1), vec2(12.9898, 78.233))) * 43758.5453);   // искры на ряби
+      float sparkle = step(0.93, h31w) * smoothstep(0.08, 0.35, sd);
+      col += uSunCol * uSunI * (pow(sd, 320.0) * 9.0 + pow(sd, 40.0) * 0.6 + pow(sd, 6.0) * 0.06 + sparkle * 1.4);   // солнечная (ночью лунная) дорожка + искры
       float stripes = 0.5 + 0.5 * sin(d * 2.4 - t * 1.3 + 1.2 * sin(p.x * 0.3 + t * 0.2));   // пена накатывает на берег
       float foam = (1.0 - smoothstep(0.2, 3.6, d)) * (0.35 + 0.65 * stripes) + smoothstep(0.8, 1.0, crest) * 0.45 * fade;
       col = mix(col, vec3(mix(1.0, 0.5, uNight)), clamp(foam, 0.0, 1.0) * 0.85);
@@ -1240,7 +1242,7 @@ function build(from, to) {
   sun.shadow.camera.left = -size; sun.shadow.camera.right = size; sun.shadow.camera.top = size; sun.shadow.camera.bottom = -size;
   sun.shadow.camera.near = 1; sun.shadow.camera.far = 400; sun.shadow.camera.updateProjectionMatrix();
   const dist = Math.max(18, Math.max(W, D) * 0.95);
-  scene.fog.near = Math.max(120, dist * 0.8); scene.fog.far = Math.max(520, dist * 3);   // город большой: туман дальше
+  scene.fog.near = Math.max(260, dist * 1.6); scene.fog.far = Math.max(1100, dist * 6);   // город большой: туман дальше
   controls.target.set(0, 1, 2);
   camera.position.set(dist * 0.62, dist * 0.55, dist * 0.78);
   scene.userData.layout = { W, D, zSouth, isl };
@@ -1417,7 +1419,7 @@ renderer.setAnimationLoop(now => {
   grow(now);
   race(dt);
   updateTower(dt);
-  oceanMat.uniforms.uTime.value = now / 1000; oceanMat.uniforms.uFogNear.value = scene.fog.far * 0.45; oceanMat.uniforms.uFogFar.value = scene.fog.far * 2.1;   // вода видна далеко, горизонт всё равно тонет в тумане
+  oceanMat.uniforms.uTime.value = now / 1000; oceanMat.uniforms.uFogNear.value = scene.fog.far * 0.62; oceanMat.uniforms.uFogFar.value = scene.fog.far * 2.6;   // вода видна далеко, горизонт всё равно тонет в тумане
   bobYachts(now / 1000);
   sail_(now / 1000);
   heli.userData.rotor.rotation.y += dt * 24; heli.userData.tail.rotation.x += dt * 30;
