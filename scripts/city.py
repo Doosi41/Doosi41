@@ -76,7 +76,7 @@ def building(floors, seed):
 
 
 def make_defs():
-    defs = '<radialGradient id="glow" cx=".5" cy=".5" r=".5"><stop offset="0" stop-color="#3a4bd0" stop-opacity=".22"/><stop offset="1" stop-color="#3a4bd0" stop-opacity="0"/></radialGradient>'
+    defs = ''
     for kind, color in GROUND.items():
         defs += f'<polygon id="g-{kind}" points="{diamond(0, 0, HALF_X + 1.5, HALF_Y + 0.8)}" fill="{color}"/>'
     for f in range(1, MAX_FLOORS + 4):
@@ -240,14 +240,46 @@ def tunnel(x0, y0, corners):
     return out
 
 
+def sea(w, h, top):
+    """Бескрайний океан фоном: насыщенная вода, пологие волны и флот судов вдалеке - как на 3D-странице."""
+    out = ('<linearGradient id="sea" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#0fa3c9"/>'
+           '<stop offset="0.5" stop-color="#077aa8"/><stop offset="1" stop-color="#034066"/></linearGradient>')
+    out += f'<rect x="0" y="{top}" width="{w}" height="{h - top}" fill="url(#sea)"/>'
+    rnd = random.Random(5)
+    for _ in range(22):   # пологие волны, светлее к горизонту
+        y = top + 10 + rnd.random() * (h - top - 25)
+        amp, per = 3 + rnd.random() * 4, 55 + rnd.random() * 70
+        pts = ' '.join(f'{x:.0f},{y + amp * math.sin(x / per + y):.1f}' for x in range(-20, w + 20, 24))
+        out += f'<polyline points="{pts}" stroke="#d6f7ff" stroke-opacity="{0.08 + rnd.random() * 0.1:.2f}" stroke-width="2" fill="none"/>'
+    hulls = ['#f4f6f9', '#2a2d33', '#8a1c1c', '#1d3557', '#c9ccd1', '#e8dcc3']
+    for i in range(60):   # флот вдалеке: яхты, парусники, грузовые суда
+        x, y = rnd.random() * w, top + 6 + rnd.random() * (h - top - 10)
+        s, kind, hull = 0.5 + rnd.random() * 1.7, rnd.random(), rnd.choice(hulls)
+        op = 0.45 + rnd.random() * 0.45
+        if kind < 0.42:   # яхта с мачтой и бортовым огнём
+            out += (f'<g transform="translate({x:.0f} {y:.0f}) scale({s:.2f})" opacity="{op:.2f}">'
+                    f'<polygon points="-9,0 6,-3 10,0 6,3" fill="{hull}"/>'
+                    f'<line x1="-1" y1="-1" x2="-1" y2="-13" stroke="#d8dde6" stroke-width=".8"/>'
+                    f'<circle cx="-1" cy="-13" r="1.1" fill="#ffd27a"/></g>')
+        elif kind < 0.74:   # парусник
+            out += (f'<g transform="translate({x:.0f} {y:.0f}) scale({s:.2f})" opacity="{op:.2f}">'
+                    f'<polygon points="-7,0 5,-2 8,0 5,2" fill="{hull}"/>'
+                    f'<polygon points="-1,0 -1,-14 7,-1" fill="#eef3f7"/></g>')
+        else:   # грузовое судно с контейнерами
+            out += (f'<g transform="translate({x:.0f} {y:.0f}) scale({s:.2f})" opacity="{op:.2f}">'
+                    f'<rect x="-16" y="-2" width="32" height="4" rx="1" fill="{hull}"/>'
+                    f'<rect x="-11" y="-6" width="6" height="4" fill="{rnd.choice(hulls)}"/>'
+                    f'<rect x="-3" y="-6" width="6" height="4" fill="{rnd.choice(hulls)}"/>'
+                    f'<rect x="5" y="-6" width="6" height="4" fill="{rnd.choice(hulls)}"/>'
+                    f'<rect x="-15" y="-8" width="5" height="3" fill="#9aa3ad"/></g>')
+    return out
+
+
 def harbour(x0, y0, weeks):
     """Гавань Порт-Эркюль вдоль главной прямой: вода, набережная и яхты, которые покачиваются на волнах."""
     vs, uw, ue = 6 + OUTSIDE, -OUTSIDE, weeks - 1 + OUTSIDE
     q = lambda u, v: '{:.1f},{:.1f}'.format(*iso(x0, y0, u, v))
-    out = ('<linearGradient id="sea" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#0d2742"/>'
-           '<stop offset="1" stop-color="#06111f"/></linearGradient>')
-    out += f'<polygon points="{q(uw - 4, vs + .95)} {q(ue + 4, vs + .95)} {q(ue + 4, vs + 12)} {q(uw - 4, vs + 12)}" fill="url(#sea)"/>'
-    out += f'<polyline points="{q(uw - 4, vs + .95)} {q(ue + 4, vs + .95)}" stroke="#5a6678" stroke-width="3" fill="none"/>'   # набережная
+    out = f'<polyline points="{q(uw - 4, vs + .95)} {q(ue + 4, vs + .95)}" stroke="#5a6678" stroke-width="3" fill="none"/>'   # набережная
     rnd = random.Random(11)
     for _ in range(40):   # блики на воде
         x, y = iso(x0, y0, uw + rnd.random() * (ue - uw), vs + 1.6 + rnd.random() * 6)
@@ -327,7 +359,7 @@ def main():
 <g font-family="-apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Segoe UI', Roboto, Helvetica, Arial, sans-serif">
 <rect width="{W}" height="{H}" fill="#070a16"/>
 {stars}
-<ellipse cx="{W / 2}" cy="{y0 + 150}" rx="640" ry="270" fill="url(#glow)"/>
+{sea(W, H, 150)}
 <text x="56" y="84" font-size="56" font-weight="700" letter-spacing="-2" fill="#f5f5f7">{total}</text>
 <text x="56" y="116" font-size="18" font-weight="500" fill="#86868b">contributions · {first:%b %-d, %Y} – {last:%b %-d, %Y}</text>
 {harbour(x0, y0, weeks)}

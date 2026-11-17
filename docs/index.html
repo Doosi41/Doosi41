@@ -208,8 +208,8 @@ const waveH = (x, z, t) => { let h = SEA_Y; for (const w of WAVES) h += w.A * Ma
 const f5 = n => n.toFixed(5);
 const WAVE_GLSL = WAVES.map(w => `{ float ph = ${f5(w.k)} * (${f5(w.dx)} * p.x + ${f5(w.dz)} * p.y) - ${f5(w.w)} * t + ${f5(w.ph)}; h += ${f5(w.A)} * sin(ph); grad += ${f5(w.A * w.k)} * cos(ph) * vec2(${f5(w.dx)}, ${f5(w.dz)}); }`).join('\n  ');
 const SRGB = (r, g, b) => new THREE.Color().setRGB(r, g, b, THREE.SRGBColorSpace);
-const OCEAN_DAY = { deep: new THREE.Color('#0a4f80'), shallow: new THREE.Color('#2fbfbd'), hor: SRGB(0.74, 0.86, 0.97), top: SRGB(0.16, 0.42, 0.86), sun: new THREE.Color('#fff2d0'), sunI: 1 };
-const OCEAN_NIGHT = { deep: new THREE.Color('#0a2c4d'), shallow: new THREE.Color('#1b7088'), hor: SRGB(0.09, 0.11, 0.24), top: SRGB(0.004, 0.012, 0.045), sun: new THREE.Color('#9db4ff'), sunI: 0.5 };
+const OCEAN_DAY = { deep: new THREE.Color('#075fa6'), shallow: new THREE.Color('#14e0cd'), hor: SRGB(0.74, 0.86, 0.97), top: SRGB(0.16, 0.42, 0.86), sun: new THREE.Color('#fff2d0'), sunI: 1 };
+const OCEAN_NIGHT = { deep: new THREE.Color('#062a66'), shallow: new THREE.Color('#0aa0b8'), hor: SRGB(0.09, 0.11, 0.24), top: SRGB(0.004, 0.012, 0.045), sun: new THREE.Color('#9db4ff'), sunI: 0.5 };
 const oceanMat = new THREE.ShaderMaterial({
   fog: false,
   uniforms: { uTime: { value: 0 }, uNight: uNight, uSunI: { value: 1 }, uFogNear: { value: 120 }, uFogFar: { value: 520 }, fogColor: { value: scene.fog.color },
