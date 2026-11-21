@@ -59,5 +59,5 @@
 <img src="assets/footer.svg" alt="Talk is cheap. Show me the code. — Linus Torvalds" width="100%">
 
 <p align="center">
-  <sub>Made with ☕ and <code>c++17</code> · <a href="https://github.com/Doosi41">@Doosi41</a></sub>
+  <sub style="font-size: 90px;">Made with ☕ and <code>c++17</code> · <a href="https://github.com/Doosi41">@Doosi41</a></sub>
 </p>
