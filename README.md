@@ -19,6 +19,7 @@
 <a href="https://github.com/Doosi41/lalafo-parser"><img src="assets/projects/lalafo-parser.svg" alt="lalafo-parser" width="100%"></a>
 
 <a href="https://github.com/Doosi41/olymp"><img src="assets/projects/olymp.svg" alt="olymp — Competitive programming solutions. The README updates itself" width="100%"></a>
+<a href="https://github.com/Doosi41/Repeat_CPP"><img src="assets/projects/repeat-cpp.svg" alt="Repeat C++ — C++ learning journey: OOP, STL, algorithms and more" width="100%"></a>
 
 <br>
 <br>
