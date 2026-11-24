@@ -2,7 +2,7 @@
 
 <a href="#projects"><img src="assets/hero.svg" alt="Altay Abdurakhim — Python backends, Telegram bots and apps with AI" width="100%"></a>
 
-<sub>🇰🇿 Kazakh · 🇰🇬 Kyrgyz · 🇷🇺 Russian · 🇬🇧 English</sub>
+<sub align="center">🇰🇿 Kazakh · 🇰🇬 Kyrgyz · 🇷🇺 Russian · 🇬🇧 English</sub>
 <p align="center">
   I am a second-year IT student at the International University of Central Asia. I am also the tech lead of a startup with two people.<br>
   I build Python backends with Django and FastAPI, Telegram bots and apps with AI. Right now my main focus is competitive programming in C++.<br>
