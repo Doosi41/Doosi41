@@ -7,10 +7,10 @@
   <sub>🇰🇿 Kazakh · 🇰🇬 Kyrgyz · 🇷🇺 Russian · 🇬🇧 English</sub>
 </p>
 
-<p align="center">
+<!-- <p align="center">
   I am a second-year IT student at the International University of Central Asia. I am also the tech lead of a startup with two people.<br>
   I build Python backends with Django and FastAPI, Telegram bots and apps with AI. Right now my main focus is competitive programming in C++.<br>
-</p>
+</p> -->
 
 <br>
 
